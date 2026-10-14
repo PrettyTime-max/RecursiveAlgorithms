@@ -1,20 +1,22 @@
 ﻿using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
-using System.Windows.Shapes;
+using System.Windows.Media.Imaging;
 
 namespace FractalDrawer
 {
     public static class FractalRenderer
     {
-        public static UIElement CreatePath(StreamGeometry geometry)
+        public static UIElement CreateImage(WriteableBitmap bitmap)
         {
-            if (geometry == null) return null;
+            if (bitmap == null) return null;
 
-            return new Path
+            return new Image
             {
-                Data = geometry,
-                Stroke = Brushes.DodgerBlue,
-                StrokeThickness = 1.0
+                Source = bitmap,
+                Width = bitmap.Width,
+                Height = bitmap.Height,
+                Stretch = Stretch.None
             };
         }
     }

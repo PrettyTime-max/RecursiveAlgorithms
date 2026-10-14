@@ -152,19 +152,19 @@ namespace FractalDrawer
             _statusGrid.Visibility = Visibility.Visible;
             _generateButton.IsEnabled = false;
 
-            double width = _fractalCanvas.ActualWidth > 0 ? _fractalCanvas.ActualWidth : 600;
-            double height = _fractalCanvas.ActualHeight > 0 ? _fractalCanvas.ActualHeight : 500;
+            int width = (int)(_fractalCanvas.ActualWidth > 0 ? _fractalCanvas.ActualWidth : 800);
+            int height = (int)(_fractalCanvas.ActualHeight > 0 ? _fractalCanvas.ActualHeight : 600);
 
             var algorithm = _algorithms[selectedKey];
 
-            // Асинхронный расчет геометрии в фоновом потоке
-            var geometry = await algorithm.CalculateGeometryAsync(width, height, iterationCount);
+            // Быстрый расчет растрового буфера в фоновом потоке
+            var bitmap = await algorithm.CalculateBitmapAsync(width, height, iterationCount);
 
-            // Отрисовка рисунка
-            UIElement fractalPath = FractalRenderer.CreatePath(geometry);
-            if (fractalPath != null)
+            // Вывод готовой картинки на холст
+            UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
+            if (fractalImage != null)
             {
-                _fractalCanvas.Children.Add(fractalPath);
+                _fractalCanvas.Children.Add(fractalImage);
             }
 
             _statusGrid.Visibility = Visibility.Collapsed;
