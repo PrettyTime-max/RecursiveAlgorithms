@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -16,13 +17,14 @@ namespace FractalDrawer
         private Canvas _fractalCanvas;
 
         private readonly Dictionary<string, IFractalAlgorithm> _algorithms;
+        private bool _isAnimating = false;
 
         public MainWindow()
         {
-            // Регистрируем доступные алгоритмы
             _algorithms = new Dictionary<string, IFractalAlgorithm>
             {
-                { "Кривая дракона", new DragonCurveAlgorithm() }
+                { "Кривая дракона", new DragonCurveAlgorithm() },
+                { "Треугольник Серпинского", new SierpinskiTriangleAlgorithm() }
             };
 
             InitializeUI();
@@ -39,7 +41,7 @@ namespace FractalDrawer
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            // --- Панель управления ---
+            // --- 1. Панель управления ---
             GroupBox controlGroupBox = new GroupBox
             {
                 Header = "Панель управления фракталами",
@@ -74,14 +76,14 @@ namespace FractalDrawer
                 Height = 25,
                 FontWeight = FontWeights.Normal
             };
-            _generateButton.Click += GenerateButton_Click;
+            _generateButton.Click += (s, e) => ExecuteDrawAnimation();
             controlPanel.Children.Add(_generateButton);
 
             controlGroupBox.Content = controlPanel;
             Grid.SetRow(controlGroupBox, 0);
             mainGrid.Children.Add(controlGroupBox);
 
-            // --- Статусная строка ---
+            // --- 2. Статусная строка ---
             _statusGrid = new Grid
             {
                 Margin = new Thickness(10, 0, 10, 8),
@@ -114,7 +116,7 @@ namespace FractalDrawer
             Grid.SetRow(_statusGrid, 1);
             mainGrid.Children.Add(_statusGrid);
 
-            // --- Холст ---
+            // --- 3. Холст ---
             Border canvasBorder = new Border
             {
                 BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
@@ -125,29 +127,27 @@ namespace FractalDrawer
 
             _fractalCanvas = new Canvas { ClipToBounds = true };
             canvasBorder.Child = _fractalCanvas;
-
             Grid.SetRow(canvasBorder, 2);
             mainGrid.Children.Add(canvasBorder);
 
             this.Content = mainGrid;
         }
 
-        private async void GenerateButton_Click(object sender, RoutedEventArgs e)
+        private async void ExecuteDrawAnimation()
         {
             string selectedKey = _algorithmComboBox.SelectedItem?.ToString();
 
-            if (string.IsNullOrEmpty(selectedKey) || !_algorithms.ContainsKey(selectedKey))
-            {
-                MessageBox.Show("Выберите корректный алгоритм.", "Внимание", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            if (string.IsNullOrEmpty(selectedKey) || !_algorithms.ContainsKey(selectedKey)) return;
 
-            if (!int.TryParse(_iterationCountTextBox.Text, out int iterationCount) || iterationCount < 1)
+            if (!int.TryParse(_iterationCountTextBox.Text, out int targetDepth) || targetDepth < 1)
             {
                 MessageBox.Show("Введите число рекурсий (больше 0).", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
+            if (targetDepth > 20) targetDepth = 20;
+
+            _isAnimating = true;
             _fractalCanvas.Children.Clear();
             _statusGrid.Visibility = Visibility.Visible;
             _generateButton.IsEnabled = false;
@@ -157,18 +157,26 @@ namespace FractalDrawer
 
             var algorithm = _algorithms[selectedKey];
 
-            // Быстрый расчет растрового буфера в фоновом потоке
-            var bitmap = await algorithm.CalculateBitmapAsync(width, height, iterationCount);
-
-            // Вывод готовой картинки на холст
-            UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
-            if (fractalImage != null)
+            for (int currentDepth = 1; currentDepth <= targetDepth; currentDepth++)
             {
-                _fractalCanvas.Children.Add(fractalImage);
+                if (!_isAnimating) break;
+
+                var bitmap = await algorithm.CalculateBitmapAsync(width, height, currentDepth);
+
+                _fractalCanvas.Children.Clear();
+                UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
+                if (fractalImage != null)
+                {
+                    _fractalCanvas.Children.Add(fractalImage);
+                }
+
+                int delay = currentDepth > 10 ? 40 : 150;
+                await Task.Delay(delay);
             }
 
             _statusGrid.Visibility = Visibility.Collapsed;
             _generateButton.IsEnabled = true;
+            _isAnimating = false;
         }
     }
 }
