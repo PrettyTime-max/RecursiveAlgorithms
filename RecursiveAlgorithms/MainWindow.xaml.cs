@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,9 +12,11 @@ namespace FractalDrawer
         private ComboBox _algorithmComboBox;
         private TextBox _iterationCountTextBox;
         private Button _generateButton;
+        private Button _stopButton; // Кнопка остановки
 
         private Grid _statusGrid;
         private ProgressBar _loadingProgressBar;
+        private TextBlock _executionTimeTextBlock;
         private Canvas _fractalCanvas;
 
         private readonly Dictionary<string, IFractalAlgorithm> _algorithms;
@@ -33,8 +36,8 @@ namespace FractalDrawer
         private void InitializeUI()
         {
             this.Title = "Генератор фракталов";
-            this.Width = 950;
-            this.Height = 650;
+            this.Width = 980;
+            this.Height = 670;
 
             Grid mainGrid = new Grid();
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -66,18 +69,32 @@ namespace FractalDrawer
 
             controlPanel.Children.Add(new TextBlock { Text = "Рекурсии (N):", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0) });
 
-            _iterationCountTextBox = new TextBox { Text = "10", Width = 60, Height = 25, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 15, 0), Padding = new Thickness(3) };
+            _iterationCountTextBox = new TextBox { Text = "8", Width = 60, Height = 25, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 15, 0), Padding = new Thickness(3) };
             controlPanel.Children.Add(_iterationCountTextBox);
 
+            // Кнопка Запустить
             _generateButton = new Button
             {
                 Content = "Запустить",
-                Width = 100,
+                Width = 90,
                 Height = 25,
-                FontWeight = FontWeights.Normal
+                FontWeight = FontWeights.Normal,
+                Margin = new Thickness(0, 0, 5, 0)
             };
             _generateButton.Click += (s, e) => ExecuteDrawAnimation();
             controlPanel.Children.Add(_generateButton);
+
+            // Кнопка Стоп
+            _stopButton = new Button
+            {
+                Content = "Стоп",
+                Width = 70,
+                Height = 25,
+                FontWeight = FontWeights.Normal,
+                IsEnabled = false // Изначально выключена, пока анимация не идет
+            };
+            _stopButton.Click += (s, e) => { _isAnimating = false; };
+            controlPanel.Children.Add(_stopButton);
 
             controlGroupBox.Content = controlPanel;
             Grid.SetRow(controlGroupBox, 0);
@@ -116,19 +133,51 @@ namespace FractalDrawer
             Grid.SetRow(_statusGrid, 1);
             mainGrid.Children.Add(_statusGrid);
 
-            // --- 3. Холст ---
+            // --- 3. Холст с наложением белой прямоугольной строки для времени ---
+            Grid canvasContainer = new Grid
+            {
+                Margin = new Thickness(10, 5, 10, 10)
+            };
+
             Border canvasBorder = new Border
             {
                 BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
                 BorderThickness = new Thickness(1),
-                Margin = new Thickness(10, 5, 10, 10),
                 Background = Brushes.White
             };
 
             _fractalCanvas = new Canvas { ClipToBounds = true };
             canvasBorder.Child = _fractalCanvas;
-            Grid.SetRow(canvasBorder, 2);
-            mainGrid.Children.Add(canvasBorder);
+            canvasContainer.Children.Add(canvasBorder); // Нижний слой — холст
+
+            // Прямоугольная белая строка с острыми углами поверх холста для времени
+            Border timeOverlayBorder = new Border
+            {
+                Height = 28,
+                Background = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(0),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Bottom,
+                Margin = new Thickness(12),
+                Padding = new Thickness(10, 4, 10, 4)
+            };
+
+            _executionTimeTextBlock = new TextBlock
+            {
+                Text = "Время: -",
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 11,
+                FontFamily = new FontFamily("Consolas, Segoe UI"),
+                Foreground = new SolidColorBrush(Color.FromRgb(40, 40, 40))
+            };
+
+            timeOverlayBorder.Child = _executionTimeTextBlock;
+            canvasContainer.Children.Add(timeOverlayBorder); // Верхний слой — строка времени
+
+            Grid.SetRow(canvasContainer, 2);
+            mainGrid.Children.Add(canvasContainer);
 
             this.Content = mainGrid;
         }
@@ -145,23 +194,35 @@ namespace FractalDrawer
                 return;
             }
 
-            if (targetDepth > 20) targetDepth = 20;
-
             _isAnimating = true;
             _fractalCanvas.Children.Clear();
             _statusGrid.Visibility = Visibility.Visible;
             _generateButton.IsEnabled = false;
+            _stopButton.IsEnabled = true; // Включаем кнопку стоп
+            _executionTimeTextBlock.Text = "Время: расчет...";
 
             int width = (int)(_fractalCanvas.ActualWidth > 0 ? _fractalCanvas.ActualWidth : 800);
             int height = (int)(_fractalCanvas.ActualHeight > 0 ? _fractalCanvas.ActualHeight : 600);
 
             var algorithm = _algorithms[selectedKey];
 
+            Stopwatch totalStopwatch = Stopwatch.StartNew();
+            long lastFrameTimeMs = 0;
+            int completedDepth = 0;
+
             for (int currentDepth = 1; currentDepth <= targetDepth; currentDepth++)
             {
+                if (!_isAnimating) break; // Прерывание по кнопке Стоп
+
+                Stopwatch frameStopwatch = Stopwatch.StartNew();
+                var bitmap = await algorithm.CalculateBitmapAsync(width, height, currentDepth);
+                frameStopwatch.Stop();
+
+                // Проверка флага после асинхронной операции
                 if (!_isAnimating) break;
 
-                var bitmap = await algorithm.CalculateBitmapAsync(width, height, currentDepth);
+                lastFrameTimeMs = frameStopwatch.ElapsedMilliseconds;
+                completedDepth = currentDepth;
 
                 _fractalCanvas.Children.Clear();
                 UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
@@ -170,12 +231,26 @@ namespace FractalDrawer
                     _fractalCanvas.Children.Add(fractalImage);
                 }
 
+                _executionTimeTextBlock.Text = $"Кадр (N={currentDepth}): {lastFrameTimeMs} ms";
+
                 int delay = currentDepth > 10 ? 40 : 150;
                 await Task.Delay(delay);
             }
 
+            totalStopwatch.Stop();
+
+            if (!_isAnimating && completedDepth < targetDepth)
+            {
+                _executionTimeTextBlock.Text = $"Остановлено на N={completedDepth}";
+            }
+            else
+            {
+                _executionTimeTextBlock.Text = $"Время (N={targetDepth}): {lastFrameTimeMs} ms | Всего: {totalStopwatch.ElapsedMilliseconds} ms";
+            }
+
             _statusGrid.Visibility = Visibility.Collapsed;
             _generateButton.IsEnabled = true;
+            _stopButton.IsEnabled = false; // Выключаем кнопку стоп обратно
             _isAnimating = false;
         }
     }
