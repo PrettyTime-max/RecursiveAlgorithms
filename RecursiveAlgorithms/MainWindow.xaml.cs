@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using RecursiveAlgorithms;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows;
@@ -27,7 +28,8 @@ namespace FractalDrawer
             _algorithms = new Dictionary<string, IFractalAlgorithm>
             {
                 { "Кривая дракона", new DragonCurveAlgorithm() },
-                { "Треугольник Серпинского", new SierpinskiTriangleAlgorithm() }
+                { "Треугольник Серпинского", new SierpinskiTriangleAlgorithm() },
+                { "Ханойская башня", new HanoiTowerAlgorithm() }
             };
 
             InitializeUI();
@@ -208,49 +210,84 @@ namespace FractalDrawer
 
             Stopwatch totalStopwatch = Stopwatch.StartNew();
             long lastFrameTimeMs = 0;
-            int completedDepth = 0;
+            int completedSteps = 0;
 
-            for (int currentDepth = 1; currentDepth <= targetDepth; currentDepth++)
+            // Проверяем, Ханойская ли это башня
+            if (algorithm is HanoiTowerAlgorithm hanoiAlg)
             {
-                if (!_isAnimating) break; // Прерывание по кнопке Стоп
+                int disksCount = targetDepth; // N — это количество дисков (от 1 до 6)
+                int totalMoves = hanoiAlg.GetTotalMoves(disksCount);
 
-                Stopwatch frameStopwatch = Stopwatch.StartNew();
-                var bitmap = await algorithm.CalculateBitmapAsync(width, height, currentDepth);
-                frameStopwatch.Stop();
-
-                // Проверка флага после асинхронной операции
-                if (!_isAnimating) break;
-
-                lastFrameTimeMs = frameStopwatch.ElapsedMilliseconds;
-                completedDepth = currentDepth;
-
-                _fractalCanvas.Children.Clear();
-                UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
-                if (fractalImage != null)
+                for (int step = 0; step <= totalMoves; step++)
                 {
-                    _fractalCanvas.Children.Add(fractalImage);
+                    if (!_isAnimating) break;
+
+                    Stopwatch frameStopwatch = Stopwatch.StartNew();
+                    var bitmap = hanoiAlg.CalculateStepBitmap(width, height, disksCount, step);
+                    frameStopwatch.Stop();
+
+                    if (!_isAnimating) break;
+
+                    lastFrameTimeMs = frameStopwatch.ElapsedMilliseconds;
+                    completedSteps = step;
+
+                    _fractalCanvas.Children.Clear();
+                    UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
+                    if (fractalImage != null)
+                    {
+                        _fractalCanvas.Children.Add(fractalImage);
+                    }
+
+                    _executionTimeTextBlock.Text = $"Ход ({step}/{totalMoves}): {lastFrameTimeMs} ms";
+
+                    // Задержка между ходами малышам для наглядности (например, 350 мс)
+                    await Task.Delay(350);
                 }
+            }
+            else
+            {
+                // Стандартная логика для фракталов (по глубине рекурсии)
+                for (int currentDepth = 1; currentDepth <= targetDepth; currentDepth++)
+                {
+                    if (!_isAnimating) break;
 
-                _executionTimeTextBlock.Text = $"Кадр (N={currentDepth}): {lastFrameTimeMs} ms";
+                    Stopwatch frameStopwatch = Stopwatch.StartNew();
+                    var bitmap = await algorithm.CalculateBitmapAsync(width, height, currentDepth);
+                    frameStopwatch.Stop();
 
-                int delay = currentDepth > 10 ? 40 : 150;
-                await Task.Delay(delay);
+                    if (!_isAnimating) break;
+
+                    lastFrameTimeMs = frameStopwatch.ElapsedMilliseconds;
+                    completedSteps = currentDepth;
+
+                    _fractalCanvas.Children.Clear();
+                    UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
+                    if (fractalImage != null)
+                    {
+                        _fractalCanvas.Children.Add(fractalImage);
+                    }
+
+                    _executionTimeTextBlock.Text = $"Кадр (N={currentDepth}): {lastFrameTimeMs} ms";
+
+                    int delay = currentDepth > 10 ? 40 : 150;
+                    await Task.Delay(delay);
+                }
             }
 
             totalStopwatch.Stop();
 
-            if (!_isAnimating && completedDepth < targetDepth)
+            if (!_isAnimating)
             {
-                _executionTimeTextBlock.Text = $"Остановлено на N={completedDepth}";
+                _executionTimeTextBlock.Text = "Остановлено";
             }
             else
             {
-                _executionTimeTextBlock.Text = $"Время (N={targetDepth}): {lastFrameTimeMs} ms | Всего: {totalStopwatch.ElapsedMilliseconds} ms";
+                _executionTimeTextBlock.Text = $"Готово! | Всего: {totalStopwatch.ElapsedMilliseconds} ms";
             }
 
             _statusGrid.Visibility = Visibility.Collapsed;
             _generateButton.IsEnabled = true;
-            _stopButton.IsEnabled = false; // Выключаем кнопку стоп обратно
+            _stopButton.IsEnabled = false;
             _isAnimating = false;
         }
     }
