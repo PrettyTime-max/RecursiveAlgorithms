@@ -215,10 +215,11 @@ namespace FractalDrawer
             // Проверяем, Ханойская ли это башня
             if (algorithm is HanoiTowerAlgorithm hanoiAlg)
             {
-                int disksCount = targetDepth; // N — это количество дисков (от 1 до 6)
+                int disksCount = targetDepth;
                 int totalMoves = hanoiAlg.GetTotalMoves(disksCount);
+                int totalSubSteps = totalMoves * HanoiTowerAlgorithm.SubStepsPerMove;
 
-                for (int step = 0; step <= totalMoves; step++)
+                for (int step = 0; step <= totalSubSteps; step++)
                 {
                     if (!_isAnimating) break;
 
@@ -229,7 +230,6 @@ namespace FractalDrawer
                     if (!_isAnimating) break;
 
                     lastFrameTimeMs = frameStopwatch.ElapsedMilliseconds;
-                    completedSteps = step;
 
                     _fractalCanvas.Children.Clear();
                     UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
@@ -238,10 +238,11 @@ namespace FractalDrawer
                         _fractalCanvas.Children.Add(fractalImage);
                     }
 
-                    _executionTimeTextBlock.Text = $"Ход ({step}/{totalMoves}): {lastFrameTimeMs} ms";
+                    int currentMove = Math.Min(step / HanoiTowerAlgorithm.SubStepsPerMove + 1, totalMoves);
+                    _executionTimeTextBlock.Text = $"Ход ({currentMove}/{totalMoves}): {lastFrameTimeMs} ms";
 
-                    // Задержка между ходами малышам для наглядности (например, 350 мс)
-                    await Task.Delay(350);
+                    // Небольшая задержка для плавного движения
+                    await Task.Delay(25);
                 }
             }
             else
