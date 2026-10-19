@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
@@ -10,19 +10,24 @@ namespace RecursiveAlgorithms
     public class HanoiTowerAlgorithm : IFractalAlgorithm
     {
         private List<(int from, int to)> _moves = new List<(int from, int to)>();
-        private List<int>[] _initialPegs;
+        private List<int>[] _initialPegs = Array.Empty<List<int>>();
         private int _totalDisks = 0;
 
-        public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth)
+        /// <summary>
+        /// Флаг использования стека вместо рекурсии (Дополнительное задание из методички)
+        /// </summary>
+        public bool UseStackAlgorithm { get; set; } = false;
+
+        public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
         {
             if (depth < 1) depth = 1;
-            if (depth > 6) depth = 6;
+            if (depth > 8) depth = 8;
 
             if (_totalDisks != depth)
             {
                 _totalDisks = depth;
                 _moves.Clear();
-                GetHanoiMoves(depth, 0, 2, 1, _moves);
+                GenerateMoves(depth, 0, 2, 1, _moves);
 
                 _initialPegs = new List<int>[3];
                 for (int i = 0; i < 3; i++) _initialPegs[i] = new List<int>();
@@ -32,10 +37,10 @@ namespace RecursiveAlgorithms
                 }
             }
 
-            return await Task.Run(() => CalculateStepBitmap(width, height, depth, depth));
+            return await Task.Run(() => CalculateStepBitmap(width, height, depth, depth, zoom, panX, panY));
         }
 
-        public WriteableBitmap CalculateStepBitmap(int width, int height, int disksCount, int stepIndex)
+        public WriteableBitmap CalculateStepBitmap(int width, int height, int disksCount, int stepIndex, double zoom = 1.0, double panX = 0, double panY = 0)
         {
             var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
             int stride = bitmap.BackBufferStride;
@@ -52,7 +57,7 @@ namespace RecursiveAlgorithms
             for (int i = disksCount; i >= 1; i--) pegs[0].Add(i);
 
             var moves = new List<(int from, int to)>();
-            GetHanoiMoves(disksCount, 0, 2, 1, moves);
+            GenerateMoves(disksCount, 0, 2, 1, moves);
 
             int limit = Math.Min(stepIndex, moves.Count);
             for (int s = 0; s < limit; s++)
@@ -66,7 +71,7 @@ namespace RecursiveAlgorithms
                 }
             }
 
-            DrawPegsContent(pixels, width, height, stride, pegs);
+            DrawPegsContent(pixels, width, height, stride, pegs, disksCount);
 
             bitmap.Lock();
             bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, stride, 0);
@@ -79,20 +84,59 @@ namespace RecursiveAlgorithms
         public int GetTotalMoves(int disksCount)
         {
             var moves = new List<(int from, int to)>();
-            GetHanoiMoves(disksCount, 0, 2, 1, moves);
+            GenerateMoves(disksCount, 0, 2, 1, moves);
             return moves.Count;
         }
 
-        private void GetHanoiMoves(int n, int from, int to, int aux, List<(int, int)> moves)
+        private void GenerateMoves(int n, int from, int to, int aux, List<(int, int)> moves)
+        {
+            if (UseStackAlgorithm)
+            {
+                GetHanoiMovesWithStack(n, from, to, aux, moves);
+            }
+            else
+            {
+                GetHanoiMovesRecursive(n, from, to, aux, moves);
+            }
+        }
+
+        // 1. Классическое рекурсивное решение (Задание 2)
+        private void GetHanoiMovesRecursive(int n, int from, int to, int aux, List<(int, int)> moves)
         {
             if (n == 1)
             {
                 moves.Add((from, to));
                 return;
             }
-            GetHanoiMoves(n - 1, from, aux, to, moves);
+            GetHanoiMovesRecursive(n - 1, from, aux, to, moves);
             moves.Add((from, to));
-            GetHanoiMoves(n - 1, aux, to, from, moves);
+            GetHanoiMovesRecursive(n - 1, aux, to, from, moves);
+        }
+
+        // 2. Итеративное решение через стек (Дополнительное задание)
+        private void GetHanoiMovesWithStack(int n, int from, int to, int aux, List<(int, int)> moves)
+        {
+            var stack = new Stack<(int count, int src, int dest, int temp)>();
+            stack.Push((n, from, to, aux));
+
+            while (stack.Count > 0)
+            {
+                var (count, src, dest, temp) = stack.Pop();
+                if (count == 1)
+                {
+                    moves.Add((src, dest));
+                }
+                else
+                {
+                    // LIFO: Заталкиваем подзадачи в стек в обратном порядке
+                    // Шаг 3: перенести (count - 1) дисков со вспомогательного на целевой
+                    stack.Push((count - 1, temp, dest, src));
+                    // Шаг 2: перенести 1 диск с исходного на целевой
+                    stack.Push((1, src, dest, temp));
+                    // Шаг 1: перенести (count - 1) дисков с исходного на вспомогательный
+                    stack.Push((count - 1, src, temp, dest));
+                }
+            }
         }
 
         private void ClearBackground(byte[] pixels, int width, int height, int stride, byte r, byte g, byte b)
@@ -134,21 +178,27 @@ namespace RecursiveAlgorithms
             }
         }
 
-        private void DrawPegsContent(byte[] pixels, int width, int height, int stride, List<int>[] pegs)
+        private void DrawPegsContent(byte[] pixels, int width, int height, int stride, List<int>[] pegs, int totalDisks)
         {
             int baseY = height - 140;
             int[] pegX = { width / 4, width / 2, (width * 3) / 4 };
-            int diskHeight = 22;
+            int diskHeight = totalDisks > 6 ? 18 : 22;
+            int stepSpacing = totalDisks > 6 ? 2 : 4;
 
-            // Бледные/пастельные гармоничные оттенки (RGB)
+            // Бледные/пастельные гармоничные оттенки (RGB) для 8+ дисков
             byte[,] pastelColors = {
-                { 220, 150, 150 }, // Мягкий бледный красный / розоватый
-                { 225, 180, 140 }, // Бледный оранжевый / персиковый
-                { 225, 215, 140 }, // Пастельный желтый
-                { 150, 200, 160 }, // Мягкий бледный зеленый
-                { 140, 180, 215 }, // Приглушенный голубой
-                { 180, 160, 210 }  // Мягкий лавандовый
+                { 220, 150, 150 }, // 1: Мягкий бледный красный / розоватый
+                { 225, 180, 140 }, // 2: Бледный оранжевый / персиковый
+                { 225, 215, 140 }, // 3: Пастельный желтый
+                { 150, 200, 160 }, // 4: Мягкий бледный зеленый
+                { 140, 195, 205 }, // 5: Морской бриз
+                { 140, 180, 215 }, // 6: Приглушенный голубой
+                { 180, 160, 210 }, // 7: Мягкий лавандовый
+                { 215, 160, 190 }  // 8: Пыльная роза
             };
+
+            int maxDiskWidth = (width / 4) - 20;
+            int minDiskWidth = 45;
 
             for (int p = 0; p < 3; p++)
             {
@@ -156,11 +206,14 @@ namespace RecursiveAlgorithms
                 for (int i = 0; i < pegs[p].Count; i++)
                 {
                     int diskSize = pegs[p][i];
-                    int dWidth = 50 + diskSize * 28;
+                    int dWidth = totalDisks > 1
+                        ? minDiskWidth + (int)((double)(diskSize - 1) / (totalDisks - 1) * (maxDiskWidth - minDiskWidth))
+                        : minDiskWidth;
+
                     int dX = pegX[p] - dWidth / 2;
                     int dY = currentY;
 
-                    int colorIdx = (diskSize - 1) % 6;
+                    int colorIdx = (diskSize - 1) % pastelColors.GetLength(0);
                     byte r = pastelColors[colorIdx, 0];
                     byte g = pastelColors[colorIdx, 1];
                     byte b = pastelColors[colorIdx, 2];
@@ -170,7 +223,7 @@ namespace RecursiveAlgorithms
                     // Тонкая аккуратная обводка
                     DrawRectBorder(pixels, width, height, stride, dX, dY, dWidth, diskHeight, 120, 120, 120);
 
-                    currentY -= (diskHeight + 4);
+                    currentY -= (diskHeight + stepSpacing);
                 }
             }
         }
