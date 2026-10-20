@@ -67,6 +67,52 @@ namespace RecursiveAlgorithms
             }
         }
 
+        public static void FillClippedRectangle(byte[] pixels, int stride, int width, int height,
+            double x, double y, double size, byte r, byte g, byte b)
+        {
+            if (size < 1.2)
+            {
+                int px = (int)Math.Round(x);
+                int py = (int)Math.Round(y);
+                if (px >= 0 && px < width && py >= 0 && py < height)
+                {
+                    int idx = py * stride + (px << 2);
+                    if (idx >= 0 && idx < pixels.Length - 3)
+                    {
+                        pixels[idx] = b;
+                        pixels[idx + 1] = g;
+                        pixels[idx + 2] = r;
+                        pixels[idx + 3] = 255;
+                    }
+                }
+                return;
+            }
+
+            int x0 = Math.Max(0, (int)Math.Round(x));
+            int y0 = Math.Max(0, (int)Math.Round(y));
+            int x1 = Math.Min(width, (int)Math.Round(x + size));
+            int y1 = Math.Min(height, (int)Math.Round(y + size));
+
+            if (x1 <= x0) x1 = Math.Min(width, x0 + 1);
+            if (y1 <= y0) y1 = Math.Min(height, y0 + 1);
+
+            for (int cy = y0; cy < y1; cy++)
+            {
+                int row = cy * stride;
+                for (int cx = x0; cx < x1; cx++)
+                {
+                    int idx = row + (cx << 2);
+                    if (idx >= 0 && idx < pixels.Length - 3)
+                    {
+                        pixels[idx] = b;
+                        pixels[idx + 1] = g;
+                        pixels[idx + 2] = r;
+                        pixels[idx + 3] = 255;
+                    }
+                }
+            }
+        }
+
         private static int ComputeOutCode(double x, double y, int xmin, int ymin, int xmax, int ymax)
         {
             int code = INSIDE;
@@ -127,7 +173,7 @@ namespace RecursiveAlgorithms
         }
     }
 
-    // 2. Треугольник Серпинского с поддержкой глубокого динамического зума
+    // 1. Треугольник Серпинского (с поддержкой LOD и отсечения невидимых областей)
     public class SierpinskiTriangleAlgorithm : IFractalAlgorithm
     {
         public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
@@ -170,7 +216,7 @@ namespace RecursiveAlgorithms
             double sx3 = (p3.X - panX) * zoom + width / 2.0;
             double sy3 = (p3.Y - panY) * zoom + height / 2.0;
 
-            // Bounding box culling
+            // Bounding box culling (отсечение ветвей за экраном)
             double minX = Math.Min(sx1, Math.Min(sx2, sx3));
             double maxX = Math.Max(sx1, Math.Max(sx2, sx3));
             double minY = Math.Min(sy1, Math.Min(sy2, sy3));
@@ -184,7 +230,9 @@ namespace RecursiveAlgorithms
             double widthSpan = maxX - minX;
             double heightSpan = maxY - minY;
 
-            if (depth == 0 || (widthSpan < 1.5 && heightSpan < 1.5))
+            // LOD: если треугольник на экране меньше 1.2 пикселя, дальнейшее деление не имеет смысла
+            // При приближении (зуме) widthSpan вырастает, и рекурсия идет глубже!
+            if (depth == 0 || (widthSpan < 1.2 && heightSpan < 1.2))
             {
                 FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, sx1, sy1, sx2, sy2, 0, 180, 0);
                 FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, sx2, sy2, sx3, sy3, 0, 180, 0);
@@ -202,13 +250,13 @@ namespace RecursiveAlgorithms
         }
     }
 
-    // 3. Кривая Гильберта (алгоритм заполнения пространства) с поддержкой глубокого динамического зума
+    // 2. Кривая Гильберта (с поддержкой LOD и отсечения невидимых областей)
     public class HilbertCurveAlgorithm : IFractalAlgorithm
     {
         public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
         {
             if (depth < 1) depth = 1;
-            if (depth > 10) depth = 10;
+            if (depth > 13) depth = 13;
 
             return await Task.Run(() =>
             {
@@ -242,7 +290,47 @@ namespace RecursiveAlgorithms
             byte[] pixels, int stride, int width, int height,
             double zoom, double panX, double panY)
         {
-            if (depth <= 0)
+            // Вычисляем экранные координаты углов квадранта
+            double sx0 = (x - panX) * zoom + width / 2.0;
+            double sy0 = (y - panY) * zoom + height / 2.0;
+            double sxi = xi * zoom;
+            double sxj = xj * zoom;
+            double syi = yi * zoom;
+            double syj = yj * zoom;
+
+            double sx1 = sx0 + sxi;
+            double sy1 = sy0 + sxj;
+            double sx2 = sx0 + syi;
+            double sy2 = sy0 + syj;
+            double sx3 = sx0 + sxi + syi;
+            double sy3 = sy0 + sxj + syj;
+
+            double minX = Math.Min(Math.Min(sx0, sx1), Math.Min(sx2, sx3));
+            double maxX = Math.Max(Math.Max(sx0, sx1), Math.Max(sx2, sx3));
+            double minY = Math.Min(Math.Min(sy0, sy1), Math.Min(sy2, sy3));
+            double maxY = Math.Max(Math.Max(sy0, sy1), Math.Max(sy2, sy3));
+
+            // Viewport Culling: если квадрант целиком вне видимого экрана
+            if (maxX < 0 || minX >= width || maxY < 0 || minY >= height)
+            {
+                Point exitPoint = GetHilbertExitPoint(x, y, xi, xj, yi, yj, depth);
+                if (lastPoint.HasValue)
+                {
+                    double lsx = (lastPoint.Value.X - panX) * zoom + width / 2.0;
+                    double lsy = (lastPoint.Value.Y - panY) * zoom + height / 2.0;
+                    double esx = (exitPoint.X - panX) * zoom + width / 2.0;
+                    double esy = (exitPoint.Y - panY) * zoom + height / 2.0;
+
+                    FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, lsx, lsy, esx, esy, 170, 0, 220);
+                }
+                lastPoint = exitPoint;
+                return;
+            }
+
+            double screenSide = Math.Sqrt(sxi * sxi + sxj * sxj);
+
+            // LOD: если ячейка на экране меньше 1.2 пикселей, дальше не делим
+            if (depth <= 0 || screenSide < 1.2)
             {
                 double cx = x + (xi + yi) / 2.0;
                 double cy = y + (xj + yj) / 2.0;
@@ -250,59 +338,60 @@ namespace RecursiveAlgorithms
 
                 if (lastPoint.HasValue)
                 {
-                    double sx1 = (lastPoint.Value.X - panX) * zoom + width / 2.0;
-                    double sy1 = (lastPoint.Value.Y - panY) * zoom + height / 2.0;
-                    double sx2 = (currentPoint.X - panX) * zoom + width / 2.0;
-                    double sy2 = (currentPoint.Y - panY) * zoom + height / 2.0;
+                    double lsx = (lastPoint.Value.X - panX) * zoom + width / 2.0;
+                    double lsy = (lastPoint.Value.Y - panY) * zoom + height / 2.0;
+                    double csx = (currentPoint.X - panX) * zoom + width / 2.0;
+                    double csy = (currentPoint.Y - panY) * zoom + height / 2.0;
 
-                    FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, sx1, sy1, sx2, sy2, 170, 0, 220); // Аметистовый/пурпурный
+                    FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, lsx, lsy, csx, csy, 170, 0, 220); // Аметистовый/пурпурный
                 }
 
                 lastPoint = currentPoint;
+                return;
             }
-            else
+
+            double hxi = xi / 2.0;
+            double hxj = xj / 2.0;
+            double hyi = yi / 2.0;
+            double hyj = yj / 2.0;
+
+            GenerateHilbert(x, y, hyi, hyj, hxi, hxj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
+            GenerateHilbert(x + hxi, y + hxj, hxi, hxj, hyi, hyj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
+            GenerateHilbert(x + hxi + hyi, y + hxj + hyj, hxi, hxj, hyi, hyj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
+            GenerateHilbert(x + hxi + yi, y + hxj + yj, -hyi, -hyj, -hxi, -hxj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
+        }
+
+        private static Point GetHilbertExitPoint(double x, double y, double xi, double xj, double yi, double yj, int depth)
+        {
+            while (depth > 0)
             {
-                double screenSide = Math.Sqrt(xi * xi + xj * xj) * zoom;
-                if (screenSide < 0.8)
-                {
-                    double cx = x + (xi + yi) / 2.0;
-                    double cy = y + (xj + yj) / 2.0;
-                    Point currentPoint = new Point(cx, cy);
-
-                    if (lastPoint.HasValue)
-                    {
-                        double sx1 = (lastPoint.Value.X - panX) * zoom + width / 2.0;
-                        double sy1 = (lastPoint.Value.Y - panY) * zoom + height / 2.0;
-                        double sx2 = (currentPoint.X - panX) * zoom + width / 2.0;
-                        double sy2 = (currentPoint.Y - panY) * zoom + height / 2.0;
-
-                        FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, sx1, sy1, sx2, sy2, 170, 0, 220);
-                    }
-
-                    lastPoint = currentPoint;
-                    return;
-                }
-
                 double hxi = xi / 2.0;
                 double hxj = xj / 2.0;
                 double hyi = yi / 2.0;
                 double hyj = yj / 2.0;
 
-                GenerateHilbert(x, y, hyi, hyj, hxi, hxj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
-                GenerateHilbert(x + hxi, y + hxj, hxi, hxj, hyi, hyj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
-                GenerateHilbert(x + hxi + hyi, y + hxj + hyj, hxi, hxj, hyi, hyj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
-                GenerateHilbert(x + hxi + yi, y + hxj + yj, -hyi, -hyj, -hxi, -hxj, depth - 1, ref lastPoint, pixels, stride, width, height, zoom, panX, panY);
+                x = x + hxi + yi;
+                y = y + hxj + yj;
+                double nxi = -hyi;
+                double nxj = -hyj;
+                double nyi = -hxi;
+                double nyj = -hxj;
+
+                xi = nxi; xj = nxj;
+                yi = nyi; yj = nyj;
+                depth--;
             }
+            return new Point(x + (xi + yi) / 2.0, y + (xj + yj) / 2.0);
         }
     }
 
-    // Кривая Леви
+    // 3. Кривая Леви (с поддержкой LOD и Viewport Culling)
     public class LevyCurveFractal : IFractalAlgorithm
     {
         public async Task<WriteableBitmap> CalculateBitmapAsync(int canvasWidth, int canvasHeight, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
         {
             if (depth < 0) depth = 0;
-            if (depth > 20) depth = 20;
+            if (depth > 27) depth = 27;
 
             return await Task.Run(() =>
             {
@@ -336,20 +425,102 @@ namespace RecursiveAlgorithms
             double sx2 = (x2 - panX) * zoom + width / 2.0;
             double sy2 = (y2 - panY) * zoom + height / 2.0;
 
-            if (depth == 0)
+            // Viewport culling: радиус описывающей окружности ветви
+            double dx = sx2 - sx1;
+            double dy = sy2 - sy1;
+            double screenDistSq = dx * dx + dy * dy;
+            double screenR = Math.Sqrt(screenDistSq) * 1.5;
+            double cx = (sx1 + sx2) / 2.0;
+            double cy = (sy1 + sy2) / 2.0;
+
+            // Если ветвь целиком за экраном — мгновенный выход
+            if (cx + screenR < 0 || cx - screenR >= width || cy + screenR < 0 || cy - screenR >= height)
+            {
+                return;
+            }
+
+            // LOD: если отрезок на экране меньше 1 пикселя (screenDistSq < 1.0) или depth == 0
+            // При полном виде отрезки не дробятся понапрасну в доли пикселя, и отрисовка мгновенна!
+            // А при приближении отрезок вырастает, и рекурсия идет глубже!
+            if (depth == 0 || screenDistSq < 1.0)
             {
                 FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, sx1, sy1, sx2, sy2, 255, 191, 0);
                 return;
             }
 
-            double dx = x2 - x1;
-            double dy = y2 - y1;
+            double mx = (x1 + x2 - (y2 - y1)) / 2.0;
+            double my = (y1 + y2 + (x2 - x1)) / 2.0;
 
-            double x3 = (x1 + x2 - dy) / 2.0;
-            double y3 = (y1 + y2 + dx) / 2.0;
+            DrawLevyRecursive(pixels, stride, width, height, x1, y1, mx, my, depth - 1, zoom, panX, panY);
+            DrawLevyRecursive(pixels, stride, width, height, mx, my, x2, y2, depth - 1, zoom, panX, panY);
+        }
+    }
 
-            DrawLevyRecursive(pixels, stride, width, height, x1, y1, x3, y3, depth - 1, zoom, panX, panY);
-            DrawLevyRecursive(pixels, stride, width, height, x3, y3, x2, y2, depth - 1, zoom, panX, panY);
+    // 5. Фрактал Вичека (крестообразная форма с поддержкой LOD и отсечения невидимых областей)
+    public class VicsekFractalAlgorithm : IFractalAlgorithm
+    {
+        public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
+        {
+            if (depth < 1) depth = 1;
+            if (depth > 11) depth = 11;
+
+            return await Task.Run(() =>
+            {
+                var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
+                int stride = bitmap.BackBufferStride;
+                byte[] pixels = new byte[stride * height];
+                Array.Fill<byte>(pixels, 255); // Чистый белый фон
+
+                double size = Math.Min(width, height) * 0.75;
+                double startX = -size / 2.0;
+                double startY = -size / 2.0;
+
+                DrawVicsekRecursive(pixels, stride, width, height, startX, startY, size, depth, zoom, panX, panY);
+
+                bitmap.Lock();
+                bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, stride, 0);
+                bitmap.Unlock();
+                bitmap.Freeze();
+
+                return bitmap;
+            });
+        }
+
+        private void DrawVicsekRecursive(byte[] pixels, int stride, int width, int height,
+            double x, double y, double size, int depth, double zoom, double panX, double panY)
+        {
+            double sx = (x - panX) * zoom + width / 2.0;
+            double sy = (y - panY) * zoom + height / 2.0;
+            double sSize = size * zoom;
+
+            // Viewport Culling: если весь квадрат находится за пределами экрана — мгновенный выход
+            if (sx + sSize < 0 || sx >= width || sy + sSize < 0 || sy >= height)
+            {
+                return;
+            }
+
+            // LOD (уровень детализации): если квадрат на экране меньше 1.2 пикселя или достигнута глубина depth == 0
+            // При полном виде микроквадраты не дробятся до бесконечности (нет лагов),
+            // а при приближении (зуме) квадрат увеличивается и рекурсия уходит дальше вглубь фрактала!
+            if (depth == 0 || sSize < 1.2)
+            {
+                FractalGraphicsHelper.FillClippedRectangle(pixels, stride, width, height, sx, sy, sSize, 215, 45, 45);
+                return;
+            }
+
+            double s = size / 3.0;
+
+            // Классическая крестообразная декомпозиция Вичека: 5 квадратов из 9
+            // 1. Центр
+            DrawVicsekRecursive(pixels, stride, width, height, x + s, y + s, s, depth - 1, zoom, panX, panY);
+            // 2. Верх
+            DrawVicsekRecursive(pixels, stride, width, height, x + s, y, s, depth - 1, zoom, panX, panY);
+            // 3. Низ
+            DrawVicsekRecursive(pixels, stride, width, height, x + s, y + 2.0 * s, s, depth - 1, zoom, panX, panY);
+            // 4. Лево
+            DrawVicsekRecursive(pixels, stride, width, height, x, y + s, s, depth - 1, zoom, panX, panY);
+            // 5. Право
+            DrawVicsekRecursive(pixels, stride, width, height, x + 2.0 * s, y + s, s, depth - 1, zoom, panX, panY);
         }
     }
 }
