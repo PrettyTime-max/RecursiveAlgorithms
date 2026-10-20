@@ -53,7 +53,8 @@ namespace FractalDrawer
                 { "Кривая дракона", new DragonCurveAlgorithm() },
                 { "Треугольник Серпинского", new SierpinskiTriangleAlgorithm() },
                 { "Кривая Гильберта", new HilbertCurveAlgorithm() },
-                { "Ханойская башня", new HanoiTowerAlgorithm() }
+                { "Ханойская башня", new HanoiTowerAlgorithm() },
+                { "Кривая Леви", new LevyCurveFractal() }
             };
 
             InitializeUI();
