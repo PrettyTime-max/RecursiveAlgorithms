@@ -637,6 +637,7 @@ namespace FractalDrawer
                 hanoiAlg.UseStackAlgorithm = _useStackCheckBox.IsChecked == true;
                 int disksCount = Math.Clamp(targetDepth, 1, 8);
                 int totalMoves = hanoiAlg.GetTotalMoves(disksCount);
+                int totalSubSteps = totalMoves * HanoiTowerAlgorithm.SubStepsPerMove;
 
                 string methodTitle = hanoiAlg.UseStackAlgorithm ? "Стек" : "Рекурсия";
 

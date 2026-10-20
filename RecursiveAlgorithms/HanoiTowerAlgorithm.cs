@@ -46,10 +46,7 @@ namespace RecursiveAlgorithms
             int stride = bitmap.BackBufferStride;
             byte[] pixels = new byte[stride * height];
 
-            // Белый чистый фон (под стиль приложения)
             ClearBackground(pixels, width, height, stride, 255, 255, 255);
-
-            // Основание и стержни в светло-серых тонах
             DrawBaseAndPegs(pixels, width, height, stride);
 
             var pegs = new List<int>[3];
@@ -59,19 +56,78 @@ namespace RecursiveAlgorithms
             var moves = new List<(int from, int to)>();
             GenerateMoves(disksCount, 0, 2, 1, moves);
 
-            int limit = Math.Min(stepIndex, moves.Count);
-            for (int s = 0; s < limit; s++)
+            int moveIndex = totalSubStepIndex / SubStepsPerMove;
+            int subStep = totalSubStepIndex % SubStepsPerMove;
+
+            // Выполняем все полностью завершенные предыдущие ходы
+            int completedMoves = Math.Min(moveIndex, moves.Count);
+            for (int s = 0; s < completedMoves; s++)
             {
-                var move = moves[s];
-                if (pegs[move.from].Count > 0)
+                var m = moves[s];
+                if (pegs[m.from].Count > 0)
                 {
-                    int disk = pegs[move.from][pegs[move.from].Count - 1];
-                    pegs[move.from].RemoveAt(pegs[move.from].Count - 1);
-                    pegs[move.to].Add(disk);
+                    int disk = pegs[m.from][pegs[m.from].Count - 1];
+                    pegs[m.from].RemoveAt(pegs[m.from].Count - 1);
+                    pegs[m.to].Add(disk);
+                }
+            }
+
+            // Если есть активный текущий ход — анимируем его
+            int movingDisk = -1;
+            int movingDiskX = 0, movingDiskY = 0;
+
+            if (moveIndex < moves.Count && subStep > 0)
+            {
+                var m = moves[moveIndex];
+                if (pegs[m.from].Count > 0)
+                {
+                    movingDisk = pegs[m.from][pegs[m.from].Count - 1];
+                    pegs[m.from].RemoveAt(pegs[m.from].Count - 1);
+
+                    // Координаты источников и целей
+                    int[] pegX = { width / 4, width / 2, (width * 3) / 4 };
+                    int baseY = height - 140;
+                    int diskHeight = 22;
+
+                    int startX = pegX[m.from];
+                    int startY = baseY - (pegs[m.from].Count) * (diskHeight + 4);
+
+                    int endX = pegX[m.to];
+                    int endY = baseY - (pegs[m.to].Count) * (diskHeight + 4);
+
+                    int topY = baseY - 240; // Высота подъема над стержнями
+
+                    double progress = (double)subStep / SubStepsPerMove;
+
+                    // Анимация из 3 фаз: подъем вверх -> сдвиг по горизонтали -> опускание вниз
+                    if (progress < 0.33)
+                    {
+                        double p = progress / 0.33;
+                        movingDiskX = startX;
+                        movingDiskY = (int)(startY + (topY - startY) * p);
+                    }
+                    else if (progress < 0.66)
+                    {
+                        double p = (progress - 0.33) / 0.33;
+                        movingDiskX = (int)(startX + (endX - startX) * p);
+                        movingDiskY = topY;
+                    }
+                    else
+                    {
+                        double p = (progress - 0.66) / 0.34;
+                        movingDiskX = endX;
+                        movingDiskY = (int)(topY + (endY - topY) * p);
+                    }
                 }
             }
 
             DrawPegsContent(pixels, width, height, stride, pegs, disksCount);
+
+            // Отрисовываем движущийся диск поверх
+            if (movingDisk != -1)
+            {
+                DrawSingleDisk(pixels, width, height, stride, movingDisk, movingDiskX, movingDiskY);
+            }
 
             bitmap.Lock();
             bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, stride, 0);
@@ -161,11 +217,9 @@ namespace RecursiveAlgorithms
             int baseHeight = 14;
             int baseX = 50;
 
-            // Серый цвет подставки (#D8D8D8)
             FillRect(pixels, width, height, stride, baseX, baseY, baseWidth, baseHeight, 216, 216, 216);
             DrawRectBorder(pixels, width, height, stride, baseX, baseY, baseWidth, baseHeight, 180, 180, 180);
 
-            // Стержни (#A0A0A0)
             int[] pegX = { width / 4, width / 2, (width * 3) / 4 };
             int pegWidth = 10;
             int pegHeight = 220;
