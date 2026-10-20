@@ -127,75 +127,6 @@ namespace RecursiveAlgorithms
         }
     }
 
-    // 1. Кривая Дракона (Хартера-Хейтуэя) с поддержкой глубокого динамического зума
-    public class DragonCurveAlgorithm : IFractalAlgorithm
-    {
-        public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
-        {
-            if (depth < 0) depth = 0;
-            if (depth > 25) depth = 25;
-
-            return await Task.Run(() =>
-            {
-                var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
-                int stride = bitmap.BackBufferStride;
-                byte[] pixels = new byte[stride * height];
-                Array.Fill<byte>(pixels, 255); // Чистый белый фон
-
-                // Начальный отрезок дракона в мировых координатах (длина 320 единиц)
-                double x1 = -160.0;
-                double y1 = 0.0;
-                double x2 = 160.0;
-                double y2 = 0.0;
-
-                DrawDragonRecursive(pixels, stride, width, height, x1, y1, x2, y2, depth, true, zoom, panX, panY);
-
-                bitmap.Lock();
-                bitmap.WritePixels(new Int32Rect(0, 0, width, height), pixels, stride, 0);
-                bitmap.Unlock();
-                bitmap.Freeze();
-
-                return bitmap;
-            });
-        }
-
-        private void DrawDragonRecursive(byte[] pixels, int stride, int width, int height,
-            double x1, double y1, double x2, double y2, int depth, bool left,
-            double zoom, double panX, double panY)
-        {
-            double sx1 = (x1 - panX) * zoom + width / 2.0;
-            double sy1 = (y1 - panY) * zoom + height / 2.0;
-            double sx2 = (x2 - panX) * zoom + width / 2.0;
-            double sy2 = (y2 - panY) * zoom + height / 2.0;
-
-            // Bounding box culling
-            double dx = sx2 - sx1;
-            double dy = sy2 - sy1;
-            double screenDistSq = dx * dx + dy * dy;
-            double screenR = Math.Sqrt(screenDistSq) * 1.3;
-            double cx = (sx1 + sx2) / 2.0;
-            double cy = (sy1 + sy2) / 2.0;
-
-            if (cx + screenR < 0 || cx - screenR >= width || cy + screenR < 0 || cy - screenR >= height)
-            {
-                return;
-            }
-
-            // Базовый случай: глубина 0 или размер на экране меньше 0.8 пикселя (при зуме раскрывается дальше)
-            if (depth == 0 || screenDistSq < 0.64)
-            {
-                FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, sx1, sy1, sx2, sy2, 30, 144, 255); // Сине-голубой
-                return;
-            }
-
-            double x3 = (x1 + x2) / 2.0 + (y2 - y1) / (left ? 2.0 : -2.0);
-            double y3 = (y1 + y2) / 2.0 - (x2 - x1) / (left ? 2.0 : -2.0);
-
-            DrawDragonRecursive(pixels, stride, width, height, x1, y1, x3, y3, depth - 1, true, zoom, panX, panY);
-            DrawDragonRecursive(pixels, stride, width, height, x3, y3, x2, y2, depth - 1, false, zoom, panX, panY);
-        }
-    }
-
     // 2. Треугольник Серпинского с поддержкой глубокого динамического зума
     public class SierpinskiTriangleAlgorithm : IFractalAlgorithm
     {
@@ -368,28 +299,26 @@ namespace RecursiveAlgorithms
     // Кривая Леви
     public class LevyCurveFractal : IFractalAlgorithm
     {
-        public async Task<WriteableBitmap> CalculateBitmapAsync(int canvasWidth, int canvasHeight, int depth)
+        public async Task<WriteableBitmap> CalculateBitmapAsync(int canvasWidth, int canvasHeight, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
         {
             if (depth < 0) depth = 0;
             if (depth > 20) depth = 20;
 
             return await Task.Run(() =>
             {
-                var bitmap = new WriteableBitmap(canvasWidth, canvasHeight, 96, 96, PixelFormats.Bgra32, null);
+                var bitmap = new WriteableBitmap(canvasWidth, canvasHeight, 96, 96,
+                    PixelFormats.Bgra32, null);
                 int stride = bitmap.BackBufferStride;
                 byte[] pixels = new byte[stride * canvasHeight];
+                Array.Fill<byte>(pixels, 255); // Белый фон
 
                 double startLength = Math.Min(canvasWidth, canvasHeight) * 0.4;
-                double centerX = canvasWidth / 2.0;
+                double x1 = -startLength / 2.0;
+                double y1 = 0.0;
+                double x2 = startLength / 2.0;
+                double y2 = 0.0;
 
-                double centerY = (canvasHeight / 2.0) - (startLength / 2.0);
-
-                double x1 = centerX - startLength / 2;
-                double y1 = centerY;
-                double x2 = centerX + startLength / 2;
-                double y2 = centerY;
-
-                DrawLevy(pixels, stride, canvasWidth, canvasHeight, x1, y1, x2, y2, depth);
+                DrawLevyRecursive(pixels, stride, canvasWidth, canvasHeight, x1, y1, x2, y2, depth, zoom, panX, panY);
 
                 bitmap.Lock();
                 bitmap.WritePixels(new Int32Rect(0, 0, canvasWidth, canvasHeight), pixels, stride, 0);
@@ -400,11 +329,16 @@ namespace RecursiveAlgorithms
             });
         }
 
-        private void DrawLevy(byte[] pixels, int stride, int width, int height, double x1, double y1, double x2, double y2, int depth)
+        private void DrawLevyRecursive(byte[] pixels, int stride, int width, int height, double x1, double y1, double x2, double y2, int depth, double zoom, double panX, double panY)
         {
+            double sx1 = (x1 - panX) * zoom + width / 2.0;
+            double sy1 = (y1 - panY) * zoom + height / 2.0;
+            double sx2 = (x2 - panX) * zoom + width / 2.0;
+            double sy2 = (y2 - panY) * zoom + height / 2.0;
+
             if (depth == 0)
             {
-                DrawLine(pixels, stride, width, height, (int)x1, (int)y1, (int)x2, (int)y2);
+                FractalGraphicsHelper.DrawClippedLine(pixels, stride, width, height, sx1, sy1, sx2, sy2, 255, 191, 0);
                 return;
             }
 
@@ -414,45 +348,8 @@ namespace RecursiveAlgorithms
             double x3 = (x1 + x2 - dy) / 2.0;
             double y3 = (y1 + y2 + dx) / 2.0;
 
-            DrawLevy(pixels, stride, width, height, x1, y1, x3, y3, depth - 1);
-            DrawLevy(pixels, stride, width, height, x3, y3, x2, y2, depth - 1);
-        }
-
-        private void DrawLine(byte[] pixels, int stride, int maxWidth, int maxHeight, int x0, int y0, int x1, int y1)
-        {
-            int dx = Math.Abs(x1 - x0);
-            int dy = Math.Abs(y1 - y0);
-            int sx = x0 < x1 ? 1 : -1;
-            int sy = y0 < y1 ? 1 : -1;
-            int err = dx - dy;
-
-            while (true)
-            {
-                if (x0 >= 0 && x0 < maxWidth && y0 >= 0 && y0 < maxHeight)
-                {
-                    int index = y0 * stride + x0 * 4;
-                    if (index >= 0 && index < pixels.Length - 3)
-                    {
-                        pixels[index] = 255;     // Blue
-                        pixels[index + 1] = 191; // Green
-                        pixels[index + 2] = 0;   // Red
-                        pixels[index + 3] = 255; // Alpha
-                    }
-                }
-
-                if (x0 == x1 && y0 == y1) break;
-                int e2 = 2 * err;
-                if (e2 > -dy)
-                {
-                    err -= dy;
-                    x0 += sx;
-                }
-                if (e2 < dx)
-                {
-                    err += dx;
-                    y0 += sy;
-                }
-            }
+            DrawLevyRecursive(pixels, stride, width, height, x1, y1, x3, y3, depth - 1, zoom, panX, panY);
+            DrawLevyRecursive(pixels, stride, width, height, x3, y3, x2, y2, depth - 1, zoom, panX, panY);
         }
     }
 }
