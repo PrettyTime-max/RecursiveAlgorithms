@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Windows;
@@ -10,21 +10,25 @@ namespace RecursiveAlgorithms
     public class HanoiTowerAlgorithm : IFractalAlgorithm
     {
         private List<(int from, int to)> _moves = new List<(int from, int to)>();
-        private List<int>[] _initialPegs;
+        private List<int>[] _initialPegs = Array.Empty<List<int>>();
         private int _totalDisks = 0;
 
         public const int SubStepsPerMove = 12; // Количество кадров анимации на одно перемещение
 
-        public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth)
+        /// <summary>
+        /// Флаг использования стека вместо рекурсии (Дополнительное задание из методички)
+        /// </summary>
+        public bool UseStackAlgorithm { get; set; } = false;
+
+        public async Task<WriteableBitmap> CalculateBitmapAsync(int width, int height, int depth, double zoom = 1.0, double panX = 0, double panY = 0)
         {
             if (depth < 1) depth = 1;
-            if (depth > 6) depth = 6;
 
             if (_totalDisks != depth)
             {
                 _totalDisks = depth;
                 _moves.Clear();
-                GetHanoiMoves(depth, 0, 2, 1, _moves);
+                GenerateMoves(depth, 0, 2, 1, _moves);
 
                 _initialPegs = new List<int>[3];
                 for (int i = 0; i < 3; i++) _initialPegs[i] = new List<int>();
@@ -34,10 +38,10 @@ namespace RecursiveAlgorithms
                 }
             }
 
-            return await Task.Run(() => CalculateStepBitmap(width, height, depth, depth * SubStepsPerMove));
+            return await Task.Run(() => CalculateStepBitmap(width, height, depth, depth * SubStepsPerMove, zoom, panX, panY));
         }
 
-        public WriteableBitmap CalculateStepBitmap(int width, int height, int disksCount, int totalSubStepIndex)
+        public WriteableBitmap CalculateStepBitmap(int width, int height, int disksCount, int stepIndex, double zoom = 1.0, double panX = 0, double panY = 0)
         {
             var bitmap = new WriteableBitmap(width, height, 96, 96, PixelFormats.Bgra32, null);
             int stride = bitmap.BackBufferStride;
@@ -51,10 +55,10 @@ namespace RecursiveAlgorithms
             for (int i = disksCount; i >= 1; i--) pegs[0].Add(i);
 
             var moves = new List<(int from, int to)>();
-            GetHanoiMoves(disksCount, 0, 2, 1, moves);
+            GenerateMoves(disksCount, 0, 2, 1, moves);
 
-            int moveIndex = totalSubStepIndex / SubStepsPerMove;
-            int subStep = totalSubStepIndex % SubStepsPerMove;
+            int moveIndex = stepIndex / SubStepsPerMove;
+            int subStep = stepIndex % SubStepsPerMove;
 
             // Выполняем все полностью завершенные предыдущие ходы
             int completedMoves = Math.Min(moveIndex, moves.Count);
@@ -84,13 +88,13 @@ namespace RecursiveAlgorithms
                     // Координаты источников и целей
                     int[] pegX = { width / 4, width / 2, (width * 3) / 4 };
                     int baseY = height - 140;
-                    int diskHeight = 22;
+                    int diskHeight = disksCount > 6 ? 18 : 22;
 
                     int startX = pegX[m.from];
-                    int startY = baseY - (pegs[m.from].Count) * (diskHeight + 4);
+                    int startY = baseY - (pegs[m.from].Count) * (diskHeight + (disksCount > 6 ? 2 : 4));
 
                     int endX = pegX[m.to];
-                    int endY = baseY - (pegs[m.to].Count) * (diskHeight + 4);
+                    int endY = baseY - (pegs[m.to].Count) * (diskHeight + (disksCount > 6 ? 2 : 4));
 
                     int topY = baseY - 240; // Высота подъема над стержнями
 
@@ -118,13 +122,12 @@ namespace RecursiveAlgorithms
                 }
             }
 
-            // Отрисовываем статичные диски на стержнях
-            DrawPegsContent(pixels, width, height, stride, pegs);
+            DrawPegsContent(pixels, width, height, stride, pegs, disksCount);
 
             // Отрисовываем движущийся диск поверх
             if (movingDisk != -1)
             {
-                DrawSingleDisk(pixels, width, height, stride, movingDisk, movingDiskX, movingDiskY);
+                DrawSingleDisk(pixels, width, height, stride, movingDisk, movingDiskX, movingDiskY, disksCount);
             }
 
             bitmap.Lock();
@@ -138,20 +141,53 @@ namespace RecursiveAlgorithms
         public int GetTotalMoves(int disksCount)
         {
             var moves = new List<(int from, int to)>();
-            GetHanoiMoves(disksCount, 0, 2, 1, moves);
+            GenerateMoves(disksCount, 0, 2, 1, moves);
             return moves.Count;
         }
 
-        private void GetHanoiMoves(int n, int from, int to, int aux, List<(int, int)> moves)
+        private void GenerateMoves(int n, int from, int to, int aux, List<(int, int)> moves)
+        {
+            if (UseStackAlgorithm)
+            {
+                GetHanoiMovesWithStack(n, from, to, aux, moves);
+            }
+            else
+            {
+                GetHanoiMovesRecursive(n, from, to, aux, moves);
+            }
+        }
+
+        private void GetHanoiMovesRecursive(int n, int from, int to, int aux, List<(int, int)> moves)
         {
             if (n == 1)
             {
                 moves.Add((from, to));
                 return;
             }
-            GetHanoiMoves(n - 1, from, aux, to, moves);
+            GetHanoiMovesRecursive(n - 1, from, aux, to, moves);
             moves.Add((from, to));
-            GetHanoiMoves(n - 1, aux, to, from, moves);
+            GetHanoiMovesRecursive(n - 1, aux, to, from, moves);
+        }
+
+        private void GetHanoiMovesWithStack(int n, int from, int to, int aux, List<(int, int)> moves)
+        {
+            var stack = new Stack<(int count, int src, int dest, int temp)>();
+            stack.Push((n, from, to, aux));
+
+            while (stack.Count > 0)
+            {
+                var (count, src, dest, temp) = stack.Pop();
+                if (count == 1)
+                {
+                    moves.Add((src, dest));
+                }
+                else
+                {
+                    stack.Push((count - 1, temp, dest, src));
+                    stack.Push((1, src, dest, temp));
+                    stack.Push((count - 1, src, temp, dest));
+                }
+            }
         }
 
         private void ClearBackground(byte[] pixels, int width, int height, int stride, byte r, byte g, byte b)
@@ -191,11 +227,12 @@ namespace RecursiveAlgorithms
             }
         }
 
-        private void DrawPegsContent(byte[] pixels, int width, int height, int stride, List<int>[] pegs)
+        private void DrawPegsContent(byte[] pixels, int width, int height, int stride, List<int>[] pegs, int totalDisks)
         {
             int baseY = height - 140;
             int[] pegX = { width / 4, width / 2, (width * 3) / 4 };
-            int diskHeight = 22;
+            int diskHeight = totalDisks > 6 ? 18 : 22;
+            int stepSpacing = totalDisks > 6 ? 2 : 4;
 
             for (int p = 0; p < 3; p++)
             {
@@ -203,16 +240,22 @@ namespace RecursiveAlgorithms
                 for (int i = 0; i < pegs[p].Count; i++)
                 {
                     int diskSize = pegs[p][i];
-                    DrawSingleDisk(pixels, width, height, stride, diskSize, pegX[p], currentY);
-                    currentY -= (diskHeight + 4);
+                    DrawSingleDisk(pixels, width, height, stride, diskSize, pegX[p], currentY, totalDisks);
+                    currentY -= (diskHeight + stepSpacing);
                 }
             }
         }
 
-        private void DrawSingleDisk(byte[] pixels, int width, int height, int stride, int diskSize, int centerX, int topY)
+        private void DrawSingleDisk(byte[] pixels, int width, int height, int stride, int diskSize, int centerX, int topY, int totalDisks)
         {
-            int diskHeight = 22;
-            int dWidth = 50 + diskSize * 28;
+            int diskHeight = totalDisks > 6 ? 18 : 22;
+            int maxDiskWidth = (width / 4) - 20;
+            int minDiskWidth = 45;
+
+            int dWidth = totalDisks > 1
+                ? minDiskWidth + (int)((double)(diskSize - 1) / (totalDisks - 1) * (maxDiskWidth - minDiskWidth))
+                : minDiskWidth;
+
             int dX = centerX - dWidth / 2;
 
             byte[,] pastelColors = {
@@ -220,11 +263,13 @@ namespace RecursiveAlgorithms
                 { 225, 180, 140 },
                 { 225, 215, 140 },
                 { 150, 200, 160 },
+                { 140, 195, 205 },
                 { 140, 180, 215 },
-                { 180, 160, 210 }
+                { 180, 160, 210 },
+                { 215, 160, 190 }
             };
 
-            int colorIdx = (diskSize - 1) % 6;
+            int colorIdx = (diskSize - 1) % pastelColors.GetLength(0);
             byte r = pastelColors[colorIdx, 0];
             byte g = pastelColors[colorIdx, 1];
             byte b = pastelColors[colorIdx, 2];

@@ -1,35 +1,63 @@
-﻿using RecursiveAlgorithms;
+using RecursiveAlgorithms;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace FractalDrawer
 {
     public partial class MainWindow : Window
     {
-        private ComboBox _algorithmComboBox;
-        private TextBox _iterationCountTextBox;
-        private Button _generateButton;
-        private Button _stopButton; // Кнопка остановки
+        private ComboBox _algorithmComboBox = null!;
+        private Slider _depthSlider = null!;
+        private TextBlock _depthLabel = null!;
+        private CheckBox _useStackCheckBox = null!;
+        private Slider _speedSlider = null!;
+        private TextBlock _speedLabel = null!;
+        private Button _generateButton = null!;
+        private Button _stopButton = null!;
 
-        private Grid _statusGrid;
-        private ProgressBar _loadingProgressBar;
-        private TextBlock _executionTimeTextBlock;
-        private Canvas _fractalCanvas;
+        private Grid _statusGrid = null!;
+        private ProgressBar _loadingProgressBar = null!;
+        private TextBlock _executionTimeTextBlock = null!;
+        private TextBlock _zoomTextBlock = null!;
+
+        private Canvas _fractalCanvas = null!;
+        private Image _fractalImage = null!;
+
+        // Параметры камеры в мировом пространстве для динамического зума
+        private double _viewZoom = 1.0;
+        private double _viewPanX = 0.0;
+        private double _viewPanY = 0.0;
+
+        private bool _isPanning = false;
+        private Point _lastMousePosition;
+        private bool _isRedrawing = false;
+        private bool _needsRedraw = false;
 
         private readonly Dictionary<string, IFractalAlgorithm> _algorithms;
         private bool _isAnimating = false;
+
+        // Флаг: был ли уже запущен расчет пользователем через кнопку "Запустить"
+        private bool _hasRendered = false;
+        private string _lastRenderedAlgorithm = "";
+        private int _lastRenderedDepth = 0;
+        private int _lastHanoiStep = 0;
 
         public MainWindow()
         {
             _algorithms = new Dictionary<string, IFractalAlgorithm>
             {
-                { "Кривая дракона", new DragonCurveAlgorithm() },
                 { "Треугольник Серпинского", new SierpinskiTriangleAlgorithm() },
-                { "Ханойская башня", new HanoiTowerAlgorithm() }
+                { "Кривая Гильберта", new HilbertCurveAlgorithm() },
+                { "Ханойская башня", new HanoiTowerAlgorithm() },
+                { "Кривая Леви", new LevyCurveFractal() },
+                { "Фрактал Вичека", new VicsekFractalAlgorithm() }
             };
 
             InitializeUI();
@@ -37,9 +65,10 @@ namespace FractalDrawer
 
         private void InitializeUI()
         {
-            this.Title = "Генератор фракталов";
-            this.Width = 980;
-            this.Height = 670;
+            this.Title = "Генератор фракталов и рекурсивных алгоритмов";
+            this.Width = 1040;
+            this.Height = 720;
+            this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
             Grid mainGrid = new Grid();
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -49,39 +78,182 @@ namespace FractalDrawer
             // --- 1. Панель управления ---
             GroupBox controlGroupBox = new GroupBox
             {
-                Header = "Панель управления фракталами",
-                Margin = new Thickness(10)
+                Header = "Панель управления фракталами и алгоритмами",
+                Margin = new Thickness(10),
+                FontWeight = FontWeights.Normal
             };
 
-            StackPanel controlPanel = new StackPanel
+            WrapPanel controlPanel = new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
-                Margin = new Thickness(5)
+                Margin = new Thickness(5),
+                VerticalAlignment = VerticalAlignment.Center
             };
 
-            controlPanel.Children.Add(new TextBlock { Text = "Алгоритм:", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0) });
+            // Алгоритм
+            controlPanel.Children.Add(new TextBlock
+            {
+                Text = "Алгоритм:",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0),
+                FontWeight = FontWeights.Normal
+            });
 
-            _algorithmComboBox = new ComboBox { Width = 200, Height = 25, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 15, 0) };
+            _algorithmComboBox = new ComboBox
+            {
+                Width = 210,
+                Height = 26,
+                VerticalContentAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 15, 0),
+                FontWeight = FontWeights.Normal
+            };
             foreach (var key in _algorithms.Keys)
             {
                 _algorithmComboBox.Items.Add(key);
             }
             if (_algorithmComboBox.Items.Count > 0) _algorithmComboBox.SelectedIndex = 0;
+            _algorithmComboBox.SelectionChanged += AlgorithmComboBox_SelectionChanged;
             controlPanel.Children.Add(_algorithmComboBox);
 
-            controlPanel.Children.Add(new TextBlock { Text = "Рекурсии (N):", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0) });
+            // --- Блок ползунка глубины рекурсии (N) в рамке ---
+            StackPanel depthInnerStack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
 
-            _iterationCountTextBox = new TextBox { Text = "8", Width = 60, Height = 25, VerticalContentAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 15, 0), Padding = new Thickness(3) };
-            controlPanel.Children.Add(_iterationCountTextBox);
+            depthInnerStack.Children.Add(new TextBlock
+            {
+                Text = "Рекурсии (N):",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0),
+                FontWeight = FontWeights.Normal
+            });
+
+            _depthSlider = new Slider
+            {
+                Minimum = 1,
+                Maximum = 16,
+                Value = 8,
+                Width = 95,
+                IsSnapToTickEnabled = true,
+                TickFrequency = 1,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0),
+                SmallChange = 1,
+                LargeChange = 2
+            };
+
+            _depthLabel = new TextBlock
+            {
+                Text = "8",
+                Width = 28,
+                TextAlignment = TextAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 0),
+                Foreground = Brushes.Black,
+                FontWeight = FontWeights.Normal
+            };
+
+            _depthSlider.ValueChanged += (s, e) =>
+            {
+                if (_depthLabel != null)
+                {
+                    _depthLabel.Text = $"{(int)_depthSlider.Value}";
+                }
+            };
+
+            depthInnerStack.Children.Add(_depthSlider);
+            depthInnerStack.Children.Add(_depthLabel);
+
+            Border depthBorder = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(6, 3, 6, 3),
+                Margin = new Thickness(0, 0, 15, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = depthInnerStack
+            };
+            controlPanel.Children.Add(depthBorder);
+
+            // Чекбокс для решения через Стек (Дополнительное задание ТЗ)
+            _useStackCheckBox = new CheckBox
+            {
+                Content = "Через Стек (доп. задание)",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 15, 0),
+                Visibility = Visibility.Collapsed,
+                FontWeight = FontWeights.Normal,
+                ToolTip = "Итеративное решение Ханойских башен с использованием явного стека вместо системного стека вызовов"
+            };
+            controlPanel.Children.Add(_useStackCheckBox);
+
+            // --- Блок регулятора скорости в рамке ---
+            StackPanel speedInnerStack = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            speedInnerStack.Children.Add(new TextBlock
+            {
+                Text = "Задержка:",
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 4, 0),
+                FontWeight = FontWeights.Normal
+            });
+
+            _speedSlider = new Slider
+            {
+                Minimum = 10,
+                Maximum = 400,
+                Value = 50,
+                Width = 90,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 5, 0),
+                SmallChange = 10,
+                LargeChange = 50
+            };
+            _speedLabel = new TextBlock
+            {
+                Text = "50 мс",
+                Width = 45,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 0),
+                Foreground = Brushes.DimGray,
+                FontWeight = FontWeights.Normal
+            };
+            _speedSlider.ValueChanged += (s, e) =>
+            {
+                if (_speedLabel != null)
+                {
+                    _speedLabel.Text = $"{(int)_speedSlider.Value} мс";
+                }
+            };
+
+            speedInnerStack.Children.Add(_speedSlider);
+            speedInnerStack.Children.Add(_speedLabel);
+
+            Border speedBorder = new Border
+            {
+                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(6, 3, 6, 3),
+                Margin = new Thickness(0, 0, 15, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = speedInnerStack
+            };
+            controlPanel.Children.Add(speedBorder);
 
             // Кнопка Запустить
             _generateButton = new Button
             {
                 Content = "Запустить",
                 Width = 90,
-                Height = 25,
+                Height = 26,
                 FontWeight = FontWeights.Normal,
-                Margin = new Thickness(0, 0, 5, 0)
+                Margin = new Thickness(0, 0, 6, 0)
             };
             _generateButton.Click += (s, e) => ExecuteDrawAnimation();
             controlPanel.Children.Add(_generateButton);
@@ -91,9 +263,10 @@ namespace FractalDrawer
             {
                 Content = "Стоп",
                 Width = 70,
-                Height = 25,
+                Height = 26,
                 FontWeight = FontWeights.Normal,
-                IsEnabled = false // Изначально выключена, пока анимация не идет
+                IsEnabled = false,
+                Margin = new Thickness(0, 0, 5, 0)
             };
             _stopButton.Click += (s, e) => { _isAnimating = false; };
             controlPanel.Children.Add(_stopButton);
@@ -113,7 +286,7 @@ namespace FractalDrawer
 
             _loadingProgressBar = new ProgressBar
             {
-                Height = 8,
+                Height = 6,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Margin = new Thickness(0, 0, 0, 4),
                 IsIndeterminate = true
@@ -127,7 +300,8 @@ namespace FractalDrawer
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Foreground = Brushes.Black,
                 FontSize = 12,
-                FontStyle = FontStyles.Italic
+                FontStyle = FontStyles.Italic,
+                FontWeight = FontWeights.Normal
             };
             Grid.SetRow(vpnWarningText, 1);
             _statusGrid.Children.Add(vpnWarningText);
@@ -135,32 +309,52 @@ namespace FractalDrawer
             Grid.SetRow(_statusGrid, 1);
             mainGrid.Children.Add(_statusGrid);
 
-            // --- 3. Холст с наложением белой прямоугольной строки для времени ---
+            // --- 3. Холст с динамическим зумом и навигацией ---
             Grid canvasContainer = new Grid
             {
-                Margin = new Thickness(10, 5, 10, 10)
+                Margin = new Thickness(10, 2, 10, 10)
             };
 
             Border canvasBorder = new Border
             {
                 BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
                 BorderThickness = new Thickness(1),
+                Background = Brushes.White,
+                ClipToBounds = true
+            };
+
+            _fractalCanvas = new Canvas
+            {
+                ClipToBounds = true,
                 Background = Brushes.White
             };
 
-            _fractalCanvas = new Canvas { ClipToBounds = true };
-            canvasBorder.Child = _fractalCanvas;
-            canvasContainer.Children.Add(canvasBorder); // Нижний слой — холст
+            _fractalImage = new Image
+            {
+                Stretch = Stretch.None
+            };
+            RenderOptions.SetBitmapScalingMode(_fractalImage, BitmapScalingMode.NearestNeighbor);
 
-            // Прямоугольная белая строка с острыми углами поверх холста для времени
-            Border timeOverlayBorder = new Border
+            _fractalCanvas.Children.Add(_fractalImage);
+            canvasBorder.Child = _fractalCanvas;
+            canvasContainer.Children.Add(canvasBorder);
+
+            // События мыши для динамического Zoom & Pan
+            _fractalCanvas.MouseWheel += FractalCanvas_MouseWheel;
+            _fractalCanvas.MouseLeftButtonDown += FractalCanvas_MouseLeftButtonDown;
+            _fractalCanvas.MouseMove += FractalCanvas_MouseMove;
+            _fractalCanvas.MouseLeftButtonUp += FractalCanvas_MouseLeftButtonUp;
+            _fractalCanvas.MouseLeave += FractalCanvas_MouseLeave;
+
+            // --- Информационная строка поверх холста (внизу, только время) ---
+            Border infoOverlayBorder = new Border
             {
                 Height = 28,
-                Background = Brushes.White,
+                Background = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)),
                 BorderBrush = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(0),
-                HorizontalAlignment = HorizontalAlignment.Left,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Bottom,
                 Margin = new Thickness(12),
                 Padding = new Thickness(10, 4, 10, 4)
@@ -168,15 +362,15 @@ namespace FractalDrawer
 
             _executionTimeTextBlock = new TextBlock
             {
-                Text = "Время: -",
+                Text = "Выберите алгоритм и нажмите 'Запустить'",
                 VerticalAlignment = VerticalAlignment.Center,
                 FontSize = 11,
                 FontFamily = new FontFamily("Consolas, Segoe UI"),
-                Foreground = new SolidColorBrush(Color.FromRgb(40, 40, 40))
+                Foreground = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                FontWeight = FontWeights.Normal
             };
-
-            timeOverlayBorder.Child = _executionTimeTextBlock;
-            canvasContainer.Children.Add(timeOverlayBorder); // Верхний слой — строка времени
+            infoOverlayBorder.Child = _executionTimeTextBlock;
+            canvasContainer.Children.Add(infoOverlayBorder);
 
             Grid.SetRow(canvasContainer, 2);
             mainGrid.Children.Add(canvasContainer);
@@ -184,108 +378,340 @@ namespace FractalDrawer
             this.Content = mainGrid;
         }
 
-        private async void ExecuteDrawAnimation()
+        private void AlgorithmComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            string selectedKey = _algorithmComboBox.SelectedItem?.ToString();
+            string? selected = _algorithmComboBox.SelectedItem?.ToString();
+            if (string.IsNullOrEmpty(selected)) return;
 
-            if (string.IsNullOrEmpty(selectedKey) || !_algorithms.ContainsKey(selectedKey)) return;
+            _hasRendered = false;
+            _fractalImage.Source = null;
+            _executionTimeTextBlock.Text = $"Выбран алгоритм '{selected}'. Нажмите 'Запустить'.";
 
-            if (!int.TryParse(_iterationCountTextBox.Text, out int targetDepth) || targetDepth < 1)
+            ResetZoom(redraw: false);
+
+            if (selected == "Ханойская башня")
             {
-                MessageBox.Show("Введите число рекурсий (больше 0).", "Ошибка", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _useStackCheckBox.Visibility = Visibility.Visible;
+                _depthSlider.Minimum = 1;
+                _depthSlider.Maximum = 8; // При N=8 время анимации ~10-12 секунд
+                _depthSlider.Value = 4;
+                _speedSlider.Value = 120;
+            }
+            else if (selected == "Треугольник Серпинского")
+            {
+                _useStackCheckBox.Visibility = Visibility.Collapsed;
+                _depthSlider.Minimum = 1;
+                _depthSlider.Maximum = 16; // При N=16 время расчета ~9 секунд
+                _depthSlider.Value = 8;
+                _speedSlider.Value = 70;
+            }
+            else if (selected == "Кривая Гильберта")
+            {
+                _useStackCheckBox.Visibility = Visibility.Collapsed;
+                _depthSlider.Minimum = 1;
+                _depthSlider.Maximum = 13; // При N=13 время расчета ~6-10 секунд
+                _depthSlider.Value = 5;
+                _speedSlider.Value = 60;
+            }
+            else if (selected == "Кривая Леви")
+            {
+                _useStackCheckBox.Visibility = Visibility.Collapsed;
+                _depthSlider.Minimum = 1;
+                _depthSlider.Maximum = 27; // При N=27 время расчета ровно ~10 секунд
+                _depthSlider.Value = 12;
+                _speedSlider.Value = 50;
+            }
+            else // Фрактал Вичека
+            {
+                _useStackCheckBox.Visibility = Visibility.Collapsed;
+                _depthSlider.Minimum = 1;
+                _depthSlider.Maximum = 11;
+                _depthSlider.Value = 5;
+                _speedSlider.Value = 60;
+            }
+        }
+
+        // --- Логика динамического зума и панорамирования ---
+        private async void FractalCanvas_MouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            Point mousePos = e.GetPosition(_fractalCanvas);
+            double factor = e.Delta > 0 ? 1.3 : (1.0 / 1.3);
+
+            int width = (int)(_fractalCanvas.ActualWidth > 50 ? _fractalCanvas.ActualWidth : 800);
+            int height = (int)(_fractalCanvas.ActualHeight > 50 ? _fractalCanvas.ActualHeight : 600);
+
+            double oldZoom = _viewZoom;
+            double newZoom = Math.Clamp(oldZoom * factor, 0.2, 50000.0);
+            if (Math.Abs(newZoom - oldZoom) < 0.00001) return;
+
+            double worldX = (mousePos.X - width / 2.0) / oldZoom + _viewPanX;
+            double worldY = (mousePos.Y - height / 2.0) / oldZoom + _viewPanY;
+
+            _viewPanX = worldX - (mousePos.X - width / 2.0) / newZoom;
+            _viewPanY = worldY - (mousePos.Y - height / 2.0) / newZoom;
+            _viewZoom = newZoom;
+
+            UpdateZoomText();
+
+            if (_hasRendered)
+            {
+                await RedrawCurrentFrameAsync();
+            }
+
+            e.Handled = true;
+        }
+
+        private void FractalCanvas_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (e.ClickCount == 2)
+            {
+                ResetZoom(redraw: _hasRendered);
                 return;
             }
 
+            _isPanning = true;
+            _lastMousePosition = e.GetPosition(_fractalCanvas);
+            _fractalCanvas.CaptureMouse();
+            _fractalCanvas.Cursor = Cursors.SizeAll;
+        }
+
+        private async void FractalCanvas_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (_isPanning)
+            {
+                Point curPos = e.GetPosition(_fractalCanvas);
+                double deltaX = curPos.X - _lastMousePosition.X;
+                double deltaY = curPos.Y - _lastMousePosition.Y;
+                _lastMousePosition = curPos;
+
+                _viewPanX -= deltaX / _viewZoom;
+                _viewPanY -= deltaY / _viewZoom;
+
+                if (_hasRendered)
+                {
+                    await RedrawCurrentFrameAsync();
+                }
+            }
+        }
+
+        private void FractalCanvas_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            EndPanning();
+        }
+
+        private void FractalCanvas_MouseLeave(object sender, MouseEventArgs e)
+        {
+            EndPanning();
+        }
+
+        private void EndPanning()
+        {
+            if (_isPanning)
+            {
+                _isPanning = false;
+                _fractalCanvas.ReleaseMouseCapture();
+                _fractalCanvas.Cursor = Cursors.Arrow;
+            }
+        }
+
+        private async void ResetZoom(bool redraw = true)
+        {
+            _viewZoom = 1.0;
+            _viewPanX = 0.0;
+            _viewPanY = 0.0;
+            UpdateZoomText();
+
+            if (redraw && _hasRendered)
+            {
+                await RedrawCurrentFrameAsync();
+            }
+        }
+
+        private void UpdateZoomText()
+        {
+            if (_zoomTextBlock != null)
+            {
+                int percent = (int)Math.Round(_viewZoom * 100);
+                _zoomTextBlock.Text = $"{percent}%";
+            }
+        }
+
+        private async Task RedrawCurrentFrameAsync()
+        {
+            if (_isAnimating || !_hasRendered) return;
+            if (_isRedrawing)
+            {
+                _needsRedraw = true;
+                return;
+            }
+
+            _isRedrawing = true;
+
+            try
+            {
+                do
+                {
+                    _needsRedraw = false;
+
+                    string? selectedKey = _lastRenderedAlgorithm;
+                    if (string.IsNullOrEmpty(selectedKey) || !_algorithms.ContainsKey(selectedKey)) return;
+
+                    int width = (int)(_fractalCanvas.ActualWidth > 50 ? _fractalCanvas.ActualWidth : 800);
+                    int height = (int)(_fractalCanvas.ActualHeight > 50 ? _fractalCanvas.ActualHeight : 600);
+
+                    var algorithm = _algorithms[selectedKey];
+
+                    if (algorithm is HanoiTowerAlgorithm hanoiAlg)
+                    {
+                        hanoiAlg.UseStackAlgorithm = _useStackCheckBox.IsChecked == true;
+                        var bitmap = hanoiAlg.CalculateStepBitmap(width, height, _lastRenderedDepth, _lastHanoiStep * HanoiTowerAlgorithm.SubStepsPerMove);
+                        _fractalImage.Source = bitmap;
+                        _fractalImage.Width = width;
+                        _fractalImage.Height = height;
+                    }
+                    else
+                    {
+                        var bitmap = await algorithm.CalculateBitmapAsync(width, height, _lastRenderedDepth, _viewZoom, _viewPanX, _viewPanY);
+
+                        _fractalImage.Source = bitmap;
+                        _fractalImage.Width = width;
+                        _fractalImage.Height = height;
+                    }
+                }
+                while (_needsRedraw && !_isAnimating);
+            }
+            finally
+            {
+                _isRedrawing = false;
+            }
+        }
+
+        // --- Выполнение в два прохода: 1) Точный замер времени 2) Красивая анимация ---
+        private async void ExecuteDrawAnimation()
+        {
+            string? selectedKey = _algorithmComboBox.SelectedItem?.ToString();
+
+            if (string.IsNullOrEmpty(selectedKey) || !_algorithms.ContainsKey(selectedKey)) return;
+
+            int targetDepth = (int)_depthSlider.Value;
+
+            _lastRenderedAlgorithm = selectedKey;
+            _lastRenderedDepth = targetDepth;
+
             _isAnimating = true;
-            _fractalCanvas.Children.Clear();
             _statusGrid.Visibility = Visibility.Visible;
             _generateButton.IsEnabled = false;
-            _stopButton.IsEnabled = true; // Включаем кнопку стоп
-            _executionTimeTextBlock.Text = "Время: расчет...";
+            _stopButton.IsEnabled = true;
+            _executionTimeTextBlock.Text = "Шаг 1/2: Точный замер времени рекурсии...";
 
-            int width = (int)(_fractalCanvas.ActualWidth > 0 ? _fractalCanvas.ActualWidth : 800);
-            int height = (int)(_fractalCanvas.ActualHeight > 0 ? _fractalCanvas.ActualHeight : 600);
+            int width = (int)(_fractalCanvas.ActualWidth > 50 ? _fractalCanvas.ActualWidth : 800);
+            int height = (int)(_fractalCanvas.ActualHeight > 50 ? _fractalCanvas.ActualHeight : 600);
 
             var algorithm = _algorithms[selectedKey];
 
-            Stopwatch totalStopwatch = Stopwatch.StartNew();
-            long lastFrameTimeMs = 0;
-            int completedSteps = 0;
+            // ==========================================
+            // ПРОХОД 1: Точный замер времени без визуальных задержек
+            // ==========================================
+            Stopwatch sw = Stopwatch.StartNew();
+            WriteableBitmap? finalBitmap = null;
 
-            // Проверяем, Ханойская ли это башня
             if (algorithm is HanoiTowerAlgorithm hanoiAlg)
             {
-                int disksCount = targetDepth;
+                hanoiAlg.UseStackAlgorithm = _useStackCheckBox.IsChecked == true;
+                int disksCount = Math.Clamp(targetDepth, 1, 8);
                 int totalMoves = hanoiAlg.GetTotalMoves(disksCount);
-                int totalSubSteps = totalMoves * HanoiTowerAlgorithm.SubStepsPerMove;
 
-                for (int step = 0; step <= totalSubSteps; step++)
+                // Считаем финальное состояние в фоне для точного времени
+                finalBitmap = await Task.Run(() => hanoiAlg.CalculateStepBitmap(width, height, disksCount, totalMoves * HanoiTowerAlgorithm.SubStepsPerMove));
+            }
+            else
+            {
+                // Считаем фрактал сразу для конечной глубины
+                finalBitmap = await algorithm.CalculateBitmapAsync(width, height, targetDepth, _viewZoom, _viewPanX, _viewPanY);
+            }
+
+            sw.Stop();
+            long exactTimeMs = sw.ElapsedMilliseconds;
+
+            if (!_isAnimating)
+            {
+                CleanupAfterAnimation("Остановлено");
+                return;
+            }
+
+            // ==========================================
+            // ПРОХОД 2: Красивая покадровая анимация для зрителей
+            // ==========================================
+            if (algorithm is HanoiTowerAlgorithm hanoiAnim)
+            {
+                hanoiAnim.UseStackAlgorithm = _useStackCheckBox.IsChecked == true;
+                int disksCount = Math.Clamp(targetDepth, 1, 8);
+                int totalMoves = hanoiAnim.GetTotalMoves(disksCount);
+                string methodTitle = hanoiAnim.UseStackAlgorithm ? "Стек" : "Рекурсия";
+
+                for (int move = 0; move <= totalMoves; move++)
                 {
-                    if (!_isAnimating) break;
+                    _lastHanoiStep = move;
 
-                    Stopwatch frameStopwatch = Stopwatch.StartNew();
-                    var bitmap = hanoiAlg.CalculateStepBitmap(width, height, disksCount, step);
-                    frameStopwatch.Stop();
-
-                    if (!_isAnimating) break;
-
-                    lastFrameTimeMs = frameStopwatch.ElapsedMilliseconds;
-
-                    _fractalCanvas.Children.Clear();
-                    UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
-                    if (fractalImage != null)
+                    for (int sub = 0; sub < HanoiTowerAlgorithm.SubStepsPerMove; sub++)
                     {
-                        _fractalCanvas.Children.Add(fractalImage);
+                        if (!_isAnimating) break;
+
+                        int currentSubStep = (move == totalMoves) ? (totalMoves * HanoiTowerAlgorithm.SubStepsPerMove) : (move * HanoiTowerAlgorithm.SubStepsPerMove + sub);
+                        var bitmap = hanoiAnim.CalculateStepBitmap(width, height, disksCount, currentSubStep);
+
+                        if (!_isAnimating) break;
+
+                        _fractalImage.Source = bitmap;
+                        _fractalImage.Width = width;
+                        _fractalImage.Height = height;
+
+                        _executionTimeTextBlock.Text = $"[Время расчета: {exactTimeMs} ms] [{methodTitle}] Ход ({Math.Min(move + 1, totalMoves)}/{totalMoves})";
+
+                        int delay = (int)(_speedSlider.Value / HanoiTowerAlgorithm.SubStepsPerMove);
+                        await Task.Delay(Math.Max(1, delay));
                     }
 
-                    int currentMove = Math.Min(step / HanoiTowerAlgorithm.SubStepsPerMove + 1, totalMoves);
-                    _executionTimeTextBlock.Text = $"Ход ({currentMove}/{totalMoves}): {lastFrameTimeMs} ms";
-
-                    // Небольшая задержка для плавного движения
-                    await Task.Delay(25);
+                    if (!_isAnimating) break;
                 }
             }
             else
             {
-                // Стандартная логика для фракталов (по глубине рекурсии)
+                // Анимация построения фрактала по уровням рекурсии от 1 до targetDepth
                 for (int currentDepth = 1; currentDepth <= targetDepth; currentDepth++)
                 {
                     if (!_isAnimating) break;
 
-                    Stopwatch frameStopwatch = Stopwatch.StartNew();
-                    var bitmap = await algorithm.CalculateBitmapAsync(width, height, currentDepth);
-                    frameStopwatch.Stop();
+                    _lastRenderedDepth = currentDepth;
+                    var bitmap = await algorithm.CalculateBitmapAsync(width, height, currentDepth, _viewZoom, _viewPanX, _viewPanY);
 
                     if (!_isAnimating) break;
 
-                    lastFrameTimeMs = frameStopwatch.ElapsedMilliseconds;
-                    completedSteps = currentDepth;
+                    _fractalImage.Source = bitmap;
+                    _fractalImage.Width = width;
+                    _fractalImage.Height = height;
 
-                    _fractalCanvas.Children.Clear();
-                    UIElement fractalImage = FractalRenderer.CreateImage(bitmap);
-                    if (fractalImage != null)
-                    {
-                        _fractalCanvas.Children.Add(fractalImage);
-                    }
+                    _executionTimeTextBlock.Text = $"[Время расчета: {exactTimeMs} ms] Уровень рекурсии (N={currentDepth}/{targetDepth})";
 
-                    _executionTimeTextBlock.Text = $"Кадр (N={currentDepth}): {lastFrameTimeMs} ms";
-
-                    int delay = currentDepth > 10 ? 40 : 150;
+                    int delay = (int)_speedSlider.Value;
                     await Task.Delay(delay);
                 }
             }
 
-            totalStopwatch.Stop();
-
-            if (!_isAnimating)
+            if (_isAnimating && finalBitmap != null)
             {
-                _executionTimeTextBlock.Text = "Остановлено";
-            }
-            else
-            {
-                _executionTimeTextBlock.Text = $"Готово! | Всего: {totalStopwatch.ElapsedMilliseconds} ms";
+                _fractalImage.Source = finalBitmap;
+                _fractalImage.Width = width;
+                _fractalImage.Height = height;
             }
 
+            _hasRendered = true;
+            CleanupAfterAnimation(_isAnimating ? $"Готово! | Время расчета: {exactTimeMs} ms" : "Остановлено");
+        }
+
+        private void CleanupAfterAnimation(string statusText)
+        {
+            _executionTimeTextBlock.Text = statusText;
             _statusGrid.Visibility = Visibility.Collapsed;
             _generateButton.IsEnabled = true;
             _stopButton.IsEnabled = false;
