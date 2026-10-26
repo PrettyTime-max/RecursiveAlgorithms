@@ -1,6 +1,9 @@
 ﻿using RecursiveAlgorithms;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -27,10 +30,10 @@ namespace FractalDrawer
             borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(13));
             borderFactory.SetValue(Border.PaddingProperty, new Thickness(10, 0, 10, 0));
 
-            var contentPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
-            contentPresenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-            contentPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
-            borderFactory.AppendChild(contentPresenter);
+            var contentPresenterBtn = new FrameworkElementFactory(typeof(ContentPresenter));
+            contentPresenterBtn.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            contentPresenterBtn.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            borderFactory.AppendChild(contentPresenterBtn);
 
             buttonTemplate.VisualTree = borderFactory;
             roundedButtonStyle.Setters.Add(new Setter(Button.TemplateProperty, buttonTemplate));
@@ -60,12 +63,163 @@ namespace FractalDrawer
             roundedTextBoxStyle.Setters.Add(new Setter(TextBox.ForegroundProperty, new SolidColorBrush(Color.FromRgb(40, 40, 40))));
             this.Resources.Add(typeof(TextBox), roundedTextBoxStyle);
 
+            // =========================================================================
+            // СТИЛИЗАЦИЯ ВЫПАДАЮЩЕГО СПИСКА (Скругленная капсула + овалы при наведении)
+            // =========================================================================
+
+            // Стиль для элементов списка (ComboBoxItem) с овальным выделением при наведении
+            Style comboBoxItemStyle = new Style(typeof(ComboBoxItem));
+            ControlTemplate itemTemplate = new ControlTemplate(typeof(ComboBoxItem));
+
+            var itemBorder = new FrameworkElementFactory(typeof(Border));
+            itemBorder.Name = "Bd";
+            itemBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+            itemBorder.SetValue(Border.PaddingProperty, new Thickness(8, 4, 8, 4));
+            itemBorder.SetValue(Border.MarginProperty, new Thickness(2, 1, 2, 1));
+            itemBorder.SetValue(Border.BackgroundProperty, Brushes.Transparent);
+
+            var itemPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            itemPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            itemBorder.AppendChild(itemPresenter);
+
+            itemTemplate.VisualTree = itemBorder;
+
+            Trigger highlightTrigger = new Trigger { Property = ComboBoxItem.IsHighlightedProperty, Value = true };
+            highlightTrigger.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(230, 235, 245)), "Bd"));
+            highlightTrigger.Setters.Add(new Setter(TextElement.ForegroundProperty, new SolidColorBrush(Color.FromRgb(20, 20, 20)), "Bd"));
+
+            Trigger selectedTrigger = new Trigger { Property = ComboBoxItem.IsSelectedProperty, Value = true };
+            selectedTrigger.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(220, 228, 242)), "Bd"));
+            selectedTrigger.Setters.Add(new Setter(TextElement.ForegroundProperty, new SolidColorBrush(Color.FromRgb(0, 0, 0)), "Bd"));
+
+            itemTemplate.Triggers.Add(highlightTrigger);
+            itemTemplate.Triggers.Add(selectedTrigger);
+            comboBoxItemStyle.Setters.Add(new Setter(ComboBoxItem.TemplateProperty, itemTemplate));
+            comboBoxItemStyle.Setters.Add(new Setter(ComboBoxItem.CursorProperty, Cursors.Hand));
+
+            // Основной стиль самого ComboBox со скругленными гранями
+            Style customComboBoxStyle = new Style(typeof(ComboBox));
+            ControlTemplate comboTemplate = new ControlTemplate(typeof(ComboBox));
+
+            var rootGrid = new FrameworkElementFactory(typeof(Grid));
+
+            var mainBorder = new FrameworkElementFactory(typeof(Border));
+            mainBorder.Name = "MainBorder";
+            mainBorder.SetValue(Border.BackgroundProperty, Brushes.White);
+            mainBorder.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(200, 200, 210)));
+            mainBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            mainBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(13));
+            mainBorder.SetValue(Border.PaddingProperty, new Thickness(10, 0, 6, 0));
+
+            var innerGrid = new FrameworkElementFactory(typeof(Grid));
+            var col1 = new FrameworkElementFactory(typeof(ColumnDefinition));
+            col1.SetValue(ColumnDefinition.WidthProperty, new GridLength(1, GridUnitType.Star));
+            var col2 = new FrameworkElementFactory(typeof(ColumnDefinition));
+            col2.SetValue(ColumnDefinition.WidthProperty, new GridLength(18));
+            innerGrid.AppendChild(col1);
+            innerGrid.AppendChild(col2);
+
+            var toggleButton = new FrameworkElementFactory(typeof(ToggleButton));
+            toggleButton.Name = "ToggleButton";
+            toggleButton.SetValue(ToggleButton.BackgroundProperty, Brushes.Transparent);
+            toggleButton.SetValue(ToggleButton.BorderBrushProperty, Brushes.Transparent);
+            toggleButton.SetValue(ToggleButton.BorderThicknessProperty, new Thickness(0));
+            toggleButton.SetValue(Grid.ColumnSpanProperty, 2);
+            toggleButton.SetValue(ToggleButton.IsCheckedProperty, new System.Windows.Data.Binding("IsDropDownOpen")
+            {
+                Mode = BindingMode.TwoWay,
+                RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
+            });
+
+            // Задаем пустой шаблон для ToggleButton, чтобы отключить любые системные голубые подсветки
+            var tbTemplate = new ControlTemplate(typeof(ToggleButton));
+            var tbGrid = new FrameworkElementFactory(typeof(Grid));
+            tbGrid.SetValue(Grid.BackgroundProperty, Brushes.Transparent);
+            tbTemplate.VisualTree = tbGrid;
+            toggleButton.SetValue(ToggleButton.TemplateProperty, tbTemplate);
+
+            innerGrid.AppendChild(toggleButton);
+
+            // Добавляем триггеры наведения и нажатия прямо в шаблон ComboBox
+            var tbHoverTrigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+            tbHoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(245, 247, 250)), "MainBorder"));
+            comboTemplate.Triggers.Add(tbHoverTrigger);
+
+            var tbPressedTrigger = new Trigger { Property = ToggleButton.IsPressedProperty, Value = true };
+            tbPressedTrigger.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(235, 240, 245)), "MainBorder"));
+            comboTemplate.Triggers.Add(tbPressedTrigger);
+
+            var contentPresenterCb = new FrameworkElementFactory(typeof(ContentPresenter));
+            contentPresenterCb.Name = "PART_ContentSite";
+            contentPresenterCb.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+            contentPresenterCb.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            contentPresenterCb.SetValue(ContentPresenter.IsHitTestVisibleProperty, false);
+            contentPresenterCb.SetValue(ContentPresenter.ContentProperty, new System.Windows.Data.Binding("SelectedItem")
+            {
+                RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
+            });
+            contentPresenterCb.SetValue(Grid.ColumnProperty, 0);
+            innerGrid.AppendChild(contentPresenterCb);
+
+            var arrowPath = new FrameworkElementFactory(typeof(System.Windows.Shapes.Path));
+            arrowPath.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M 0 0 L 4 4 L 8 0 Z"));
+            arrowPath.SetValue(System.Windows.Shapes.Path.FillProperty, new SolidColorBrush(Color.FromRgb(110, 110, 120)));
+            arrowPath.SetValue(System.Windows.Shapes.Path.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            arrowPath.SetValue(System.Windows.Shapes.Path.VerticalAlignmentProperty, VerticalAlignment.Center);
+            arrowPath.SetValue(System.Windows.Shapes.Path.IsHitTestVisibleProperty, false);
+            arrowPath.SetValue(Grid.ColumnProperty, 1);
+            innerGrid.AppendChild(arrowPath);
+
+            mainBorder.AppendChild(innerGrid);
+            rootGrid.AppendChild(mainBorder);
+
+            var popup = new FrameworkElementFactory(typeof(Popup));
+            popup.Name = "Popup";
+            popup.SetValue(Popup.AllowsTransparencyProperty, true);
+            popup.SetValue(Popup.FocusableProperty, false);
+            popup.SetValue(Popup.IsOpenProperty, new System.Windows.Data.Binding("IsDropDownOpen")
+            {
+                RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
+            });
+            popup.SetValue(Popup.PopupAnimationProperty, PopupAnimation.Slide);
+            popup.SetValue(Popup.PlacementProperty, PlacementMode.Bottom);
+
+            var dropDownBorder = new FrameworkElementFactory(typeof(Border));
+            dropDownBorder.Name = "DropDownBorder";
+            dropDownBorder.SetValue(Border.BackgroundProperty, Brushes.White);
+            dropDownBorder.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(200, 200, 210)));
+            dropDownBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            dropDownBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
+            dropDownBorder.SetValue(Border.PaddingProperty, new Thickness(3));
+            dropDownBorder.SetValue(Border.MarginProperty, new Thickness(0, 3, 0, 0));
+            dropDownBorder.SetValue(FrameworkElement.MaxHeightProperty, 220.0);
+            dropDownBorder.SetValue(FrameworkElement.MinWidthProperty, new System.Windows.Data.Binding("ActualWidth")
+            {
+                RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
+            });
+
+            var scrollViewer = new FrameworkElementFactory(typeof(ScrollViewer));
+            scrollViewer.SetValue(ScrollViewer.SnapsToDevicePixelsProperty, true);
+
+            var itemsPresenter = new FrameworkElementFactory(typeof(ItemsPresenter));
+            itemsPresenter.Name = "ItemsPresenter";
+            scrollViewer.AppendChild(itemsPresenter);
+            dropDownBorder.AppendChild(scrollViewer);
+            popup.AppendChild(dropDownBorder);
+
+            rootGrid.AppendChild(popup);
+            comboTemplate.VisualTree = rootGrid;
+
+            customComboBoxStyle.Setters.Add(new Setter(ComboBox.TemplateProperty, comboTemplate));
+
+            // =========================================================================
+
             Grid mainGrid = new Grid();
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            // --- Панель управления ---
+            // --- 1. Панель управления ---
             Border controlOuterBorder = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(250, 250, 252)),
@@ -80,7 +234,7 @@ namespace FractalDrawer
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            // Алгоритм
+            // Метка "Алгоритм:"
             controlPanel.Children.Add(new TextBlock
             {
                 Text = "Алгоритм:",
@@ -89,14 +243,15 @@ namespace FractalDrawer
                 FontWeight = FontWeights.Normal
             });
 
-            // 3. Создаем стандартный ComboBox в скругленной капсуле
+            // Сам выпадающий список
             _algorithmComboBox = new ComboBox
             {
-                Width = 192,
-                Height = 24,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0)
+                Width = 200,
+                Height = 26,
+                Style = customComboBoxStyle,
+                ItemContainerStyle = comboBoxItemStyle,
+                Margin = new Thickness(0, 0, 16, 0),
+                Cursor = Cursors.Hand
             };
 
             foreach (var key in _algorithms.Keys)
@@ -106,24 +261,9 @@ namespace FractalDrawer
             if (_algorithmComboBox.Items.Count > 0) _algorithmComboBox.SelectedIndex = 0;
             _algorithmComboBox.SelectionChanged += AlgorithmComboBox_SelectionChanged;
 
-            // Обертка-капсула, которая идеально совпадает по стилю с полями ввода и кнопками
-            Border comboWrapper = new Border
-            {
-                Width = 200,
-                Height = 26,
-                CornerRadius = new CornerRadius(13),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 210)),
-                BorderThickness = new Thickness(1),
-                Background = Brushes.White,
-                Margin = new Thickness(0, 0, 16, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                Padding = new Thickness(4, 0, 2, 0),
-                Child = _algorithmComboBox
-            };
+            controlPanel.Children.Add(_algorithmComboBox);
 
-            controlPanel.Children.Add(comboWrapper);
-
-            // Рекурсии (N)
+            // --- Блок рекурсии (N) ---
             StackPanel depthInnerStack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -175,6 +315,7 @@ namespace FractalDrawer
             depthInnerStack.Children.Add(_depthLabel);
             controlPanel.Children.Add(depthInnerStack);
 
+            // Чекбокс для решения через Стек
             _useStackCheckBox = new CheckBox
             {
                 Content = "Через Стек",
@@ -185,7 +326,7 @@ namespace FractalDrawer
             };
             controlPanel.Children.Add(_useStackCheckBox);
 
-            // Задержка
+            // --- Блок регулятора скорости ---
             StackPanel speedInnerStack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -232,6 +373,7 @@ namespace FractalDrawer
             speedInnerStack.Children.Add(_speedLabel);
             controlPanel.Children.Add(speedInnerStack);
 
+            // Кнопка Запустить
             _generateButton = new Button
             {
                 Content = "Запустить",
@@ -242,6 +384,7 @@ namespace FractalDrawer
             _generateButton.Click += (s, e) => ExecuteDrawAnimation();
             controlPanel.Children.Add(_generateButton);
 
+            // Кнопка Стоп
             _stopButton = new Button
             {
                 Content = "Стоп",
@@ -257,7 +400,7 @@ namespace FractalDrawer
             Grid.SetRow(controlOuterBorder, 0);
             mainGrid.Children.Add(controlOuterBorder);
 
-            // --- Статусная строка ---
+            // --- 2. Статусная строка ---
             _statusGrid = new Grid
             {
                 Margin = new Thickness(10, 4, 10, 4),
@@ -279,7 +422,7 @@ namespace FractalDrawer
             Grid.SetRow(_statusGrid, 1);
             mainGrid.Children.Add(_statusGrid);
 
-            // --- Холст ---
+            // --- 3. Холст ---
             Grid canvasContainer = new Grid
             {
                 Margin = new Thickness(10, 6, 10, 10)
@@ -344,6 +487,7 @@ namespace FractalDrawer
             Grid.SetRow(canvasContainer, 2);
             mainGrid.Children.Add(canvasContainer);
 
+            // --- 4. Интеграция с TabControl ---
             TabControl rootTabControl = new TabControl
             {
                 Background = new SolidColorBrush(Color.FromRgb(248, 249, 250)),
