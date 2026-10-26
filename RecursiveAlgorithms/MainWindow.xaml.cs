@@ -8,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -94,42 +96,86 @@ namespace FractalDrawer
             this.Height = 720;
             this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
+            // 1. Стиль для скругленных (овальных) кнопок
+            Style roundedButtonStyle = new Style(typeof(Button));
+            ControlTemplate buttonTemplate = new ControlTemplate(typeof(Button));
+
+            var borderFactory = new FrameworkElementFactory(typeof(Border));
+            borderFactory.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(240, 240, 245)));
+            borderFactory.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(200, 200, 210)));
+            borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(13));
+            borderFactory.SetValue(Border.PaddingProperty, new Thickness(10, 0, 10, 0));
+
+            var contentPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            contentPresenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            contentPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            borderFactory.AppendChild(contentPresenter);
+
+            buttonTemplate.VisualTree = borderFactory;
+            roundedButtonStyle.Setters.Add(new Setter(Button.TemplateProperty, buttonTemplate));
+            roundedButtonStyle.Setters.Add(new Setter(Button.ForegroundProperty, new SolidColorBrush(Color.FromRgb(40, 40, 40))));
+            roundedButtonStyle.Setters.Add(new Setter(Button.CursorProperty, Cursors.Hand));
+
+            this.Resources.Add(typeof(Button), roundedButtonStyle);
+
+            // 2. Стиль для скругленных полей ввода (TextBox)
+            Style roundedTextBoxStyle = new Style(typeof(TextBox));
+            ControlTemplate textBoxTemplate = new ControlTemplate(typeof(TextBox));
+
+            var tbBorderFactory = new FrameworkElementFactory(typeof(Border));
+            tbBorderFactory.SetValue(Border.BackgroundProperty, Brushes.White);
+            tbBorderFactory.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(200, 200, 210)));
+            tbBorderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            tbBorderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(12));
+            tbBorderFactory.SetValue(Border.PaddingProperty, new Thickness(6, 0, 6, 0));
+
+            var tbScrollViewer = new FrameworkElementFactory(typeof(ScrollViewer));
+            tbScrollViewer.Name = "PART_ContentHost";
+            tbBorderFactory.AppendChild(tbScrollViewer);
+
+            textBoxTemplate.VisualTree = tbBorderFactory;
+            roundedTextBoxStyle.Setters.Add(new Setter(TextBox.TemplateProperty, textBoxTemplate));
+            roundedTextBoxStyle.Setters.Add(new Setter(TextBox.VerticalContentAlignmentProperty, VerticalAlignment.Center));
+            roundedTextBoxStyle.Setters.Add(new Setter(TextBox.ForegroundProperty, new SolidColorBrush(Color.FromRgb(40, 40, 40))));
+            this.Resources.Add(typeof(TextBox), roundedTextBoxStyle);
+
             Grid mainGrid = new Grid();
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
 
-            // --- 1. Панель управления ---
-            GroupBox controlGroupBox = new GroupBox
+            // --- 1. Панель управления (минимализм без внешних тяжелых рамок) ---
+            Border controlOuterBorder = new Border
             {
-                Header = "Панель управления фракталами и алгоритмами",
-                Margin = new Thickness(10),
-                FontWeight = FontWeights.Normal
+                Background = new SolidColorBrush(Color.FromRgb(250, 250, 252)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(230, 230, 235)),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = new Thickness(8, 6, 8, 6)
             };
 
             WrapPanel controlPanel = new WrapPanel
             {
                 Orientation = Orientation.Horizontal,
-                Margin = new Thickness(5),
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            // Алгоритм
+            // Алгоритм (метка)
             controlPanel.Children.Add(new TextBlock
             {
                 Text = "Алгоритм:",
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 5, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 FontWeight = FontWeights.Normal
             });
 
             _algorithmComboBox = new ComboBox
             {
-                Width = 210,
-                Height = 26,
+                Width = 192,
+                Height = 24,
                 VerticalContentAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 15, 0),
-                FontWeight = FontWeights.Normal
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0)
             };
             foreach (var key in _algorithms.Keys)
             {
@@ -137,20 +183,36 @@ namespace FractalDrawer
             }
             if (_algorithmComboBox.Items.Count > 0) _algorithmComboBox.SelectedIndex = 0;
             _algorithmComboBox.SelectionChanged += AlgorithmComboBox_SelectionChanged;
-            controlPanel.Children.Add(_algorithmComboBox);
 
-            // --- Блок ползунка глубины рекурсии (N) в рамке ---
+            // Скругленная капсула-обертка для ComboBox
+            Border comboWrapper = new Border
+            {
+                Width = 200,
+                Height = 26,
+                CornerRadius = new CornerRadius(13),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 210)),
+                BorderThickness = new Thickness(1),
+                Background = Brushes.White,
+                Margin = new Thickness(0, 0, 16, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(4, 0, 2, 0),
+                Child = _algorithmComboBox
+            };
+            controlPanel.Children.Add(comboWrapper);
+
+            // --- Блок рекурсии (N) без рамки ---
             StackPanel depthInnerStack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 16, 0)
             };
 
             depthInnerStack.Children.Add(new TextBlock
             {
                 Text = "Рекурсии (N):",
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 4, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 FontWeight = FontWeights.Normal
             });
 
@@ -159,11 +221,11 @@ namespace FractalDrawer
                 Minimum = 1,
                 Maximum = 16,
                 Value = 8,
-                Width = 95,
+                Width = 85,
                 IsSnapToTickEnabled = true,
                 TickFrequency = 1,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 5, 0),
+                Margin = new Thickness(0, 0, 4, 0),
                 SmallChange = 1,
                 LargeChange = 2
             };
@@ -171,10 +233,9 @@ namespace FractalDrawer
             _depthLabel = new TextBlock
             {
                 Text = "8",
-                Width = 28,
+                Width = 24,
                 TextAlignment = TextAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 0),
                 Foreground = Brushes.Black,
                 FontWeight = FontWeights.Normal
             };
@@ -189,42 +250,32 @@ namespace FractalDrawer
 
             depthInnerStack.Children.Add(_depthSlider);
             depthInnerStack.Children.Add(_depthLabel);
+            controlPanel.Children.Add(depthInnerStack);
 
-            Border depthBorder = new Border
-            {
-                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
-                BorderThickness = new Thickness(1),
-                Padding = new Thickness(6, 3, 6, 3),
-                Margin = new Thickness(0, 0, 15, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = depthInnerStack
-            };
-            controlPanel.Children.Add(depthBorder);
-
-            // Чекбокс для решения через Стек (Дополнительное задание ТЗ)
+            // Чекбокс для решения через Стек
             _useStackCheckBox = new CheckBox
             {
-                Content = "Через Стек (доп. задание)",
+                Content = "Через Стек",
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 15, 0),
+                Margin = new Thickness(0, 0, 16, 0),
                 Visibility = Visibility.Collapsed,
-                FontWeight = FontWeights.Normal,
-                ToolTip = "Итеративное решение Ханойских башен с использованием явного стека вместо системного стека вызовов"
+                FontWeight = FontWeights.Normal
             };
             controlPanel.Children.Add(_useStackCheckBox);
 
-            // --- Блок регулятора скорости в рамке ---
+            // --- Блок регулятора скорости без рамки ---
             StackPanel speedInnerStack = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 16, 0)
             };
 
             speedInnerStack.Children.Add(new TextBlock
             {
                 Text = "Задержка:",
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 4, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 FontWeight = FontWeights.Normal
             });
 
@@ -233,18 +284,17 @@ namespace FractalDrawer
                 Minimum = 10,
                 Maximum = 400,
                 Value = 50,
-                Width = 90,
+                Width = 85,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 5, 0),
+                Margin = new Thickness(0, 0, 4, 0),
                 SmallChange = 10,
                 LargeChange = 50
             };
             _speedLabel = new TextBlock
             {
                 Text = "50 мс",
-                Width = 45,
+                Width = 42,
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 0),
                 Foreground = Brushes.DimGray,
                 FontWeight = FontWeights.Normal
             };
@@ -258,17 +308,7 @@ namespace FractalDrawer
 
             speedInnerStack.Children.Add(_speedSlider);
             speedInnerStack.Children.Add(_speedLabel);
-
-            Border speedBorder = new Border
-            {
-                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
-                BorderThickness = new Thickness(1),
-                Padding = new Thickness(6, 3, 6, 3),
-                Margin = new Thickness(0, 0, 15, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                Child = speedInnerStack
-            };
-            controlPanel.Children.Add(speedBorder);
+            controlPanel.Children.Add(speedInnerStack);
 
             // Кнопка Запустить
             _generateButton = new Button
@@ -276,7 +316,6 @@ namespace FractalDrawer
                 Content = "Запустить",
                 Width = 90,
                 Height = 26,
-                FontWeight = FontWeights.Normal,
                 Margin = new Thickness(0, 0, 6, 0)
             };
             _generateButton.Click += (s, e) => ExecuteDrawAnimation();
@@ -288,21 +327,20 @@ namespace FractalDrawer
                 Content = "Стоп",
                 Width = 70,
                 Height = 26,
-                FontWeight = FontWeights.Normal,
                 IsEnabled = false,
                 Margin = new Thickness(0, 0, 5, 0)
             };
             _stopButton.Click += (s, e) => { _isAnimating = false; };
             controlPanel.Children.Add(_stopButton);
 
-            controlGroupBox.Content = controlPanel;
-            Grid.SetRow(controlGroupBox, 0);
-            mainGrid.Children.Add(controlGroupBox);
+            controlOuterBorder.Child = controlPanel;
+            Grid.SetRow(controlOuterBorder, 0);
+            mainGrid.Children.Add(controlOuterBorder);
 
             // --- 2. Статусная строка ---
             _statusGrid = new Grid
             {
-                Margin = new Thickness(10, 0, 10, 8),
+                Margin = new Thickness(10, 4, 10, 4),
                 Visibility = Visibility.Collapsed
             };
             _statusGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -310,41 +348,30 @@ namespace FractalDrawer
 
             _loadingProgressBar = new ProgressBar
             {
-                Height = 6,
+                Height = 4,
                 HorizontalAlignment = HorizontalAlignment.Stretch,
-                Margin = new Thickness(0, 0, 0, 4),
+                Margin = new Thickness(0, 0, 0, 2),
                 IsIndeterminate = true
             };
             Grid.SetRow(_loadingProgressBar, 0);
             _statusGrid.Children.Add(_loadingProgressBar);
 
-            TextBlock vpnWarningText = new TextBlock
-            {
-                Text = "Для нормальной работы приложения, отключите ВПН",
-                HorizontalAlignment = HorizontalAlignment.Left,
-                Foreground = Brushes.Black,
-                FontSize = 12,
-                FontStyle = FontStyles.Italic,
-                FontWeight = FontWeights.Normal
-            };
-            Grid.SetRow(vpnWarningText, 1);
-            _statusGrid.Children.Add(vpnWarningText);
-
             Grid.SetRow(_statusGrid, 1);
             mainGrid.Children.Add(_statusGrid);
 
-            // --- 3. Холст с динамическим зумом и навигацией ---
+            // --- 3. Холст с чистым минималистичным контейнером ---
             Grid canvasContainer = new Grid
             {
-                Margin = new Thickness(10, 2, 10, 10)
+                Margin = new Thickness(10, 6, 10, 10)
             };
 
             Border canvasBorder = new Border
             {
-                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(215, 215, 220)),
                 BorderThickness = new Thickness(1),
                 Background = Brushes.White,
-                ClipToBounds = true
+                ClipToBounds = true,
+                CornerRadius = new CornerRadius(4)
             };
 
             _fractalCanvas = new Canvas
@@ -363,25 +390,25 @@ namespace FractalDrawer
             canvasBorder.Child = _fractalCanvas;
             canvasContainer.Children.Add(canvasBorder);
 
-            // События мыши для динамического Zoom & Pan
+            // События мыши для зума и панорамирования
             _fractalCanvas.MouseWheel += FractalCanvas_MouseWheel;
             _fractalCanvas.MouseLeftButtonDown += FractalCanvas_MouseLeftButtonDown;
             _fractalCanvas.MouseMove += FractalCanvas_MouseMove;
             _fractalCanvas.MouseLeftButtonUp += FractalCanvas_MouseLeftButtonUp;
             _fractalCanvas.MouseLeave += FractalCanvas_MouseLeave;
 
-            // --- Информационная строка поверх холста (внизу, только время) ---
+            // --- Информационная строка поверх холста (внизу, с овальным оформлением) ---
             Border infoOverlayBorder = new Border
             {
                 Height = 28,
-                Background = new SolidColorBrush(Color.FromArgb(235, 255, 255, 255)),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(180, 180, 180)),
+                Background = new SolidColorBrush(Color.FromArgb(245, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(200, 200, 210)),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(0),
-                HorizontalAlignment = HorizontalAlignment.Stretch,
+                CornerRadius = new CornerRadius(14),
+                HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Bottom,
                 Margin = new Thickness(12),
-                Padding = new Thickness(10, 4, 10, 4)
+                Padding = new Thickness(14, 4, 14, 4)
             };
 
             _executionTimeTextBlock = new TextBlock
@@ -390,7 +417,7 @@ namespace FractalDrawer
                 VerticalAlignment = VerticalAlignment.Center,
                 FontSize = 11,
                 FontFamily = new FontFamily("Consolas, Segoe UI"),
-                Foreground = new SolidColorBrush(Color.FromRgb(40, 40, 40)),
+                Foreground = new SolidColorBrush(Color.FromRgb(50, 50, 60)),
                 FontWeight = FontWeights.Normal
             };
             infoOverlayBorder.Child = _executionTimeTextBlock;
@@ -399,30 +426,38 @@ namespace FractalDrawer
             Grid.SetRow(canvasContainer, 2);
             mainGrid.Children.Add(canvasContainer);
 
-            // --- Корневой TabControl с двумя вкладками: 1) Визуализация 2) Анализ сложности ---
+            // Интеграция с корневым TabControl (если используется вкладка анализа)
             TabControl rootTabControl = new TabControl
             {
                 Background = new SolidColorBrush(Color.FromRgb(248, 249, 250)),
-                BorderThickness = new Thickness(0, 1, 0, 0)
+                BorderThickness = new Thickness(0)
             };
 
             TabItem fractalTab = new TabItem
             {
-                Header = "🎨  Визуализация фракталов",
+                Header = "  🎨 Визуализация  ",
                 Content = mainGrid,
-                FontSize = 13,
-                Padding = new Thickness(14, 6, 14, 6)
+                FontSize = 12,
+                Padding = new Thickness(12, 6, 12, 6)
             };
             rootTabControl.Items.Add(fractalTab);
 
-            TabItem complexityTab = new TabItem
+            if (this.Content is TabControl existingTabs && existingTabs.Items.Count > 1)
             {
-                Header = "📊  Анализ сложности (График)",
-                Content = CreateComplexityTabContent(),
-                FontSize = 13,
-                Padding = new Thickness(14, 6, 14, 6)
-            };
-            rootTabControl.Items.Add(complexityTab);
+                var complexityTab = existingTabs.Items[1] as TabItem;
+                if (complexityTab != null) rootTabControl.Items.Add(complexityTab);
+            }
+            else
+            {
+                TabItem complexityTab = new TabItem
+                {
+                    Header = "  📊 Анализ сложности  ",
+                    Content = CreateComplexityTabContent(),
+                    FontSize = 12,
+                    Padding = new Thickness(12, 6, 12, 6)
+                };
+                rootTabControl.Items.Add(complexityTab);
+            }
 
             this.Content = rootTabControl;
         }
