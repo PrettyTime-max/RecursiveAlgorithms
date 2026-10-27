@@ -5,8 +5,8 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
+using System.Windows.Markup;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 
 namespace FractalDrawer
 {
@@ -19,12 +19,12 @@ namespace FractalDrawer
             this.Height = 720;
             this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
 
-            // 1. Стиль для скругленных (овальных) кнопок
+            // 1. Стиль для скругленных (овальных) кнопок (с белым фоном)
             Style roundedButtonStyle = new Style(typeof(Button));
             ControlTemplate buttonTemplate = new ControlTemplate(typeof(Button));
 
             var borderFactory = new FrameworkElementFactory(typeof(Border));
-            borderFactory.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(240, 240, 245)));
+            borderFactory.SetValue(Border.BackgroundProperty, Brushes.White); // Белый фон кнопки
             borderFactory.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(200, 200, 210)));
             borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(13));
@@ -64,10 +64,48 @@ namespace FractalDrawer
             this.Resources.Add(typeof(TextBox), roundedTextBoxStyle);
 
             // =========================================================================
-            // СТИЛИЗАЦИЯ ВЫПАДАЮЩЕГО СПИСКА (Скругленная капсула + овалы при наведении)
+            // СТИЛИЗАЦИЯ ПОЛЗУНКА (SLIDER) С СЕРЫМ КОНТУРОМ БЕГУНКА
             // =========================================================================
+            string sliderXaml = @"
+            <Style xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+                   xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'
+                   TargetType='Slider'>
+                <Setter Property='Stylus.IsPressAndHoldEnabled' Value='False'/>
+                <Setter Property='Background' Value='Transparent'/>
+                <Setter Property='BorderBrush' Value='Transparent'/>
+                <Setter Property='Template'>
+                    <Setter.Value>
+                        <ControlTemplate TargetType='Slider'>
+                            <Grid VerticalAlignment='Center'>
+                                <Border Height='4' CornerRadius='2' Background='#D7D7E1' VerticalAlignment='Center'/>
+                                <Track x:Name='PART_Track'>
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command='{x:Static Slider.DecreaseLarge}' Opacity='0'/>
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command='{x:Static Slider.IncreaseLarge}' Opacity='0'/>
+                                    </Track.IncreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Width='14' Height='14' Cursor='Hand'>
+                                            <Thumb.Template>
+                                                <ControlTemplate TargetType='Thumb'>
+                                                    <Border Background='White' BorderBrush='#B0B0C0' BorderThickness='1' CornerRadius='7'/>
+                                                </ControlTemplate>
+                                            </Thumb.Template>
+                                        </Thumb>
+                                    </Track.Thumb>
+                                </Track>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>";
 
-            // Стиль для элементов списка (ComboBoxItem) с овальным выделением при наведении
+            Style customSliderStyle = (Style)XamlReader.Parse(sliderXaml);
+
+            // =========================================================================
+            // СТИЛИЗАЦИЯ ВЫПАДАЮЩЕГО СПИСКА (COMBOBOX)
+            // =========================================================================
             Style comboBoxItemStyle = new Style(typeof(ComboBoxItem));
             ControlTemplate itemTemplate = new ControlTemplate(typeof(ComboBoxItem));
 
@@ -97,7 +135,6 @@ namespace FractalDrawer
             comboBoxItemStyle.Setters.Add(new Setter(ComboBoxItem.TemplateProperty, itemTemplate));
             comboBoxItemStyle.Setters.Add(new Setter(ComboBoxItem.CursorProperty, Cursors.Hand));
 
-            // Основной стиль самого ComboBox со скругленными гранями
             Style customComboBoxStyle = new Style(typeof(ComboBox));
             ControlTemplate comboTemplate = new ControlTemplate(typeof(ComboBox));
 
@@ -125,13 +162,12 @@ namespace FractalDrawer
             toggleButton.SetValue(ToggleButton.BorderBrushProperty, Brushes.Transparent);
             toggleButton.SetValue(ToggleButton.BorderThicknessProperty, new Thickness(0));
             toggleButton.SetValue(Grid.ColumnSpanProperty, 2);
-            toggleButton.SetValue(ToggleButton.IsCheckedProperty, new System.Windows.Data.Binding("IsDropDownOpen")
+            toggleButton.SetValue(ToggleButton.IsCheckedProperty, new Binding("IsDropDownOpen")
             {
                 Mode = BindingMode.TwoWay,
                 RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
             });
 
-            // Задаем пустой шаблон для ToggleButton, чтобы отключить любые системные голубые подсветки
             var tbTemplate = new ControlTemplate(typeof(ToggleButton));
             var tbGrid = new FrameworkElementFactory(typeof(Grid));
             tbGrid.SetValue(Grid.BackgroundProperty, Brushes.Transparent);
@@ -140,7 +176,6 @@ namespace FractalDrawer
 
             innerGrid.AppendChild(toggleButton);
 
-            // Добавляем триггеры наведения и нажатия прямо в шаблон ComboBox
             var tbHoverTrigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
             tbHoverTrigger.Setters.Add(new Setter(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(245, 247, 250)), "MainBorder"));
             comboTemplate.Triggers.Add(tbHoverTrigger);
@@ -154,7 +189,7 @@ namespace FractalDrawer
             contentPresenterCb.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Left);
             contentPresenterCb.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
             contentPresenterCb.SetValue(ContentPresenter.IsHitTestVisibleProperty, false);
-            contentPresenterCb.SetValue(ContentPresenter.ContentProperty, new System.Windows.Data.Binding("SelectedItem")
+            contentPresenterCb.SetValue(ContentPresenter.ContentProperty, new Binding("SelectedItem")
             {
                 RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
             });
@@ -177,7 +212,7 @@ namespace FractalDrawer
             popup.Name = "Popup";
             popup.SetValue(Popup.AllowsTransparencyProperty, true);
             popup.SetValue(Popup.FocusableProperty, false);
-            popup.SetValue(Popup.IsOpenProperty, new System.Windows.Data.Binding("IsDropDownOpen")
+            popup.SetValue(Popup.IsOpenProperty, new Binding("IsDropDownOpen")
             {
                 RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
             });
@@ -193,7 +228,7 @@ namespace FractalDrawer
             dropDownBorder.SetValue(Border.PaddingProperty, new Thickness(3));
             dropDownBorder.SetValue(Border.MarginProperty, new Thickness(0, 3, 0, 0));
             dropDownBorder.SetValue(FrameworkElement.MaxHeightProperty, 220.0);
-            dropDownBorder.SetValue(FrameworkElement.MinWidthProperty, new System.Windows.Data.Binding("ActualWidth")
+            dropDownBorder.SetValue(FrameworkElement.MinWidthProperty, new Binding("ActualWidth")
             {
                 RelativeSource = new RelativeSource(RelativeSourceMode.TemplatedParent)
             });
@@ -211,6 +246,58 @@ namespace FractalDrawer
             comboTemplate.VisualTree = rootGrid;
 
             customComboBoxStyle.Setters.Add(new Setter(ComboBox.TemplateProperty, comboTemplate));
+
+            // =========================================================================
+            // СТИЛИЗАЦИЯ CHECKBOX
+            // =========================================================================
+            Style customCheckBoxStyle = new Style(typeof(CheckBox));
+            ControlTemplate checkBoxTemplate = new ControlTemplate(typeof(CheckBox));
+
+            var cbGrid = new FrameworkElementFactory(typeof(Grid));
+            var cbCol1 = new FrameworkElementFactory(typeof(ColumnDefinition));
+            cbCol1.SetValue(ColumnDefinition.WidthProperty, GridLength.Auto);
+            var cbCol2 = new FrameworkElementFactory(typeof(ColumnDefinition));
+            cbCol2.SetValue(ColumnDefinition.WidthProperty, new GridLength(1, GridUnitType.Star));
+            cbGrid.AppendChild(cbCol1);
+            cbGrid.AppendChild(cbCol2);
+
+            var cbBorder = new FrameworkElementFactory(typeof(Border));
+            cbBorder.Name = "BoxBorder";
+            cbBorder.SetValue(Border.WidthProperty, 16.0);
+            cbBorder.SetValue(Border.HeightProperty, 16.0);
+            cbBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(4));
+            cbBorder.SetValue(Border.BackgroundProperty, Brushes.White);
+            cbBorder.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(190, 190, 205)));
+            cbBorder.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+            cbBorder.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
+
+            var checkMark = new FrameworkElementFactory(typeof(System.Windows.Shapes.Path));
+            checkMark.Name = "CheckMark";
+            checkMark.SetValue(System.Windows.Shapes.Path.DataProperty, Geometry.Parse("M 2 5 L 6 9 L 12 3"));
+            checkMark.SetValue(System.Windows.Shapes.Path.StrokeProperty, new SolidColorBrush(Color.FromRgb(30, 136, 229)));
+            checkMark.SetValue(System.Windows.Shapes.Path.StrokeThicknessProperty, 2.0);
+            checkMark.SetValue(System.Windows.Shapes.Path.HorizontalAlignmentProperty, HorizontalAlignment.Center);
+            checkMark.SetValue(System.Windows.Shapes.Path.VerticalAlignmentProperty, VerticalAlignment.Center);
+            checkMark.SetValue(UIElement.VisibilityProperty, Visibility.Collapsed);
+            cbBorder.AppendChild(checkMark);
+
+            cbGrid.AppendChild(cbBorder);
+
+            var cbContent = new FrameworkElementFactory(typeof(ContentPresenter));
+            cbContent.SetValue(Grid.ColumnProperty, 1);
+            cbContent.SetValue(FrameworkElement.MarginProperty, new Thickness(6, 0, 0, 0));
+            cbContent.SetValue(VerticalAlignmentProperty, VerticalAlignment.Center);
+            cbGrid.AppendChild(cbContent);
+
+            checkBoxTemplate.VisualTree = cbGrid;
+
+            Trigger cbCheckedTrigger = new Trigger { Property = CheckBox.IsCheckedProperty, Value = true };
+            cbCheckedTrigger.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Visible, "CheckMark"));
+            cbCheckedTrigger.Setters.Add(new Setter(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(30, 136, 229)), "BoxBorder"));
+            checkBoxTemplate.Triggers.Add(cbCheckedTrigger);
+
+            customCheckBoxStyle.Setters.Add(new Setter(CheckBox.TemplateProperty, checkBoxTemplate));
+            customCheckBoxStyle.Setters.Add(new Setter(CheckBox.CursorProperty, Cursors.Hand));
 
             // =========================================================================
 
@@ -234,7 +321,6 @@ namespace FractalDrawer
                 VerticalAlignment = VerticalAlignment.Center
             };
 
-            // Метка "Алгоритм:"
             controlPanel.Children.Add(new TextBlock
             {
                 Text = "Алгоритм:",
@@ -243,7 +329,6 @@ namespace FractalDrawer
                 FontWeight = FontWeights.Normal
             });
 
-            // Сам выпадающий список
             _algorithmComboBox = new ComboBox
             {
                 Width = 200,
@@ -253,7 +338,6 @@ namespace FractalDrawer
                 Margin = new Thickness(0, 0, 16, 0),
                 Cursor = Cursors.Hand
             };
-
             foreach (var key in _algorithms.Keys)
             {
                 _algorithmComboBox.Items.Add(key);
@@ -285,6 +369,7 @@ namespace FractalDrawer
                 Maximum = 16,
                 Value = 8,
                 Width = 85,
+                Style = customSliderStyle,
                 IsSnapToTickEnabled = true,
                 TickFrequency = 1,
                 VerticalAlignment = VerticalAlignment.Center,
@@ -315,10 +400,10 @@ namespace FractalDrawer
             depthInnerStack.Children.Add(_depthLabel);
             controlPanel.Children.Add(depthInnerStack);
 
-            // Чекбокс для решения через Стек
             _useStackCheckBox = new CheckBox
             {
                 Content = "Через Стек",
+                Style = customCheckBoxStyle,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 16, 0),
                 Visibility = Visibility.Collapsed,
@@ -348,6 +433,7 @@ namespace FractalDrawer
                 Maximum = 400,
                 Value = 50,
                 Width = 85,
+                Style = customSliderStyle,
                 VerticalAlignment = VerticalAlignment.Center,
                 Margin = new Thickness(0, 0, 4, 0),
                 SmallChange = 10,
@@ -373,7 +459,6 @@ namespace FractalDrawer
             speedInnerStack.Children.Add(_speedLabel);
             controlPanel.Children.Add(speedInnerStack);
 
-            // Кнопка Запустить
             _generateButton = new Button
             {
                 Content = "Запустить",
@@ -384,7 +469,6 @@ namespace FractalDrawer
             _generateButton.Click += (s, e) => ExecuteDrawAnimation();
             controlPanel.Children.Add(_generateButton);
 
-            // Кнопка Стоп
             _stopButton = new Button
             {
                 Content = "Стоп",
